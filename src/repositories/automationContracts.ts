@@ -1,0 +1,6 @@
+import type { AutomationDefinition, AutomationEvaluation, AutomationExecution, AutomationPolicy, OutboxEvent, OutboxStatus } from '../domain'
+export interface AutomationDefinitionRepository { listByTenant(tenantId:string):Promise<readonly AutomationDefinition[]>; getById(tenantId:string,id:string):Promise<AutomationDefinition|null>; save(tenantId:string,item:AutomationDefinition):Promise<void> }
+export interface AutomationPolicyRepository { get(tenantId:string):Promise<AutomationPolicy|null>; save(tenantId:string,item:AutomationPolicy):Promise<void> }
+export interface AutomationEvaluationRepository { listByTenant(tenantId:string):Promise<readonly AutomationEvaluation[]>; append(tenantId:string,item:AutomationEvaluation):Promise<void> }
+export interface OutboxRepository { listByTenant(tenantId:string, filters?:{status?:OutboxStatus}):Promise<readonly OutboxEvent[]>; getById(tenantId:string,id:string):Promise<OutboxEvent|null>; findBySourceAction(tenantId:string,sourceEventId:string,automationId:string,actionType:string):Promise<OutboxEvent|null>; save(tenantId:string,item:OutboxEvent):Promise<void> }
+export interface AutomationExecutionRepository { listByTenant(tenantId:string):Promise<readonly AutomationExecution[]>; append(tenantId:string,item:AutomationExecution):Promise<void> }
