@@ -8,12 +8,17 @@ export type CommercialActivityType =
   | 'OPPORTUNITY_VALUE_CHANGED' | 'OPPORTUNITY_ASSIGNED' | 'OPPORTUNITY_WON'
   | 'OPPORTUNITY_LOST' | 'OPPORTUNITY_ABANDONED' | 'OPPORTUNITY_REOPENED'
   | 'NOTE_ADDED' | 'TASK_CREATED' | 'TASK_COMPLETED' | 'TASK_CANCELLED'
+  | 'ORDER_CREATED' | 'ORDER_CANCELLED' | 'PAYMENT_PROOF_SUBMITTED' | 'PAYMENT_REVIEW_STARTED' | 'PAYMENT_APPROVED' | 'PAYMENT_REJECTED'
+  | 'INVENTORY_RESERVED' | 'INVENTORY_COMMITTED' | 'INVENTORY_RELEASED' | 'INVENTORY_EXPIRED'
+  | 'FULFILLMENT_STARTED' | 'FULFILLMENT_READY' | 'ORDER_DISPATCHED' | 'ORDER_DELIVERED'
 
 export interface CommercialActivity extends TenantScoped {
   id: EntityId
   customerId: EntityId
   opportunityId?: EntityId
   conversationId?: EntityId
+  orderId?: EntityId
+  paymentId?: EntityId
   type: CommercialActivityType
   actorType: ActorType
   actorId?: EntityId

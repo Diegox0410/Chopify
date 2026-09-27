@@ -3,7 +3,8 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { sampleCommercialApp } from '../../application/sampleApp'
 import type { CommercialActivity, Customer, Opportunity, OpportunityLossReason } from '../../domain'
-import { date, money, SampleBadge, StatusPill, tenantNames } from '../commercial/shared'
+import { date, money, tenantNames } from '../commercial/formatters'
+import { SampleBadge, StatusPill } from '../commercial/shared'
 
 export function OpportunityDetailPage() {
   const { tenantId = '', opportunityId = '' } = useParams()
@@ -13,7 +14,9 @@ export function OpportunityDetailPage() {
   const [error, setError] = useState('')
   const [form, setForm] = useState<'VALUE' | 'LOSE' | 'ABANDON' | null>(null)
   const load = useCallback(() => { setError(''); void sampleCommercialApp.getOpportunity(tenantId, opportunityId).then(async (next) => { setItem(next); if (next) { const [detail, nextActivities] = await Promise.all([sampleCommercialApp.getCustomerDetail(tenantId, next.customerId), sampleCommercialApp.listCommercialActivities(tenantId, { opportunityId })]); setCustomer(detail?.customer ?? null); setActivities(nextActivities) } }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar la oportunidad')) }, [tenantId, opportunityId])
-  useEffect(load, [load])
+ useEffect(() => {
+  queueMicrotask(load)
+}, [load])
   async function run(operation: () => Promise<unknown>) { try { await operation(); setForm(null); load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Transición rechazada') } }
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); if (form === 'VALUE') await run(() => sampleCommercialApp.updateOpportunityEstimatedValue(tenantId, opportunityId, Math.round(Number(data.get('value')) * 100))); if (form === 'LOSE') await run(() => sampleCommercialApp.loseOpportunity(tenantId, opportunityId, String(data.get('reason')) as OpportunityLossReason, String(data.get('detail')) || undefined)); if (form === 'ABANDON') await run(() => sampleCommercialApp.abandonOpportunity(tenantId, opportunityId, String(data.get('reason')) || undefined)) }
   if (!item) return <div className="page">{error ? <div className="error-banner">{error}</div> : <div className="loading-state">Cargando oportunidad…</div>}</div>

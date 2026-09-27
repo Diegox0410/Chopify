@@ -1,4 +1,4 @@
-import type { CommercialTask, HumanEscalation, Opportunity, OpportunityStatus, Conversation } from './index'
+import type { CommercialTask, HumanEscalation, Opportunity, OpportunityStatus, Conversation, PaymentProof } from './index'
 
 export const OPEN_PIPELINE_STATUSES: readonly OpportunityStatus[] = ['OPEN', 'QUALIFIED', 'CART_STARTED', 'ORDER_CREATED']
 export const OPERATIONAL_PIPELINE_STATUSES = OPEN_PIPELINE_STATUSES
@@ -61,7 +61,7 @@ export function calculateConversionMetrics(items: readonly Opportunity[]): Conve
   }
 }
 
-export type AttentionSourceType = 'HUMAN_ESCALATION' | 'CONVERSATION' | 'COMMERCIAL_TASK'
+export type AttentionSourceType = 'HUMAN_ESCALATION' | 'CONVERSATION' | 'COMMERCIAL_TASK' | 'PAYMENT_PROOF' | 'INVENTORY_CONFLICT'
 export interface AttentionItem {
   tenantId: string
   sourceType: AttentionSourceType
@@ -72,11 +72,13 @@ export interface AttentionItem {
   dueAt?: string
 }
 
-export function projectAttention(escalations: readonly HumanEscalation[], conversations: readonly Conversation[], tasks: readonly CommercialTask[], now: string): AttentionItem[] {
+export function projectAttention(escalations: readonly HumanEscalation[], conversations: readonly Conversation[], tasks: readonly CommercialTask[], now: string, orderAttention: { proofs?: readonly PaymentProof[]; inventoryConflicts?: readonly { tenantId: string; id: string; label: string; occurredAt: string }[] } = {}): AttentionItem[] {
   const items: AttentionItem[] = [
     ...escalations.filter((item) => item.status !== 'RESOLVED').map((item): AttentionItem => ({ tenantId: item.tenantId, sourceType: 'HUMAN_ESCALATION', sourceId: item.id, priority: item.priority === 'LOW' ? 'NORMAL' : item.priority, label: item.contextSummary || item.reason, timestamp: item.createdAt })),
     ...conversations.filter((item) => item.status === 'HUMAN_REQUIRED').map((item): AttentionItem => ({ tenantId: item.tenantId, sourceType: 'CONVERSATION', sourceId: item.id, priority: 'HIGH', label: 'Conversación requiere atención humana', timestamp: item.lastActivityAt })),
-    ...tasks.filter((item) => item.status === 'OPEN' && (item.priority === 'HIGH' || item.priority === 'URGENT')).map((item): AttentionItem => ({ tenantId: item.tenantId, sourceType: 'COMMERCIAL_TASK', sourceId: item.id, priority: item.dueAt && item.dueAt < now ? 'URGENT' : item.priority, label: item.title, timestamp: item.createdAt, dueAt: item.dueAt })),
+    ...tasks.filter((item) => item.status === 'OPEN' && (item.priority === 'HIGH' || item.priority === 'URGENT')).map((item): AttentionItem => ({ tenantId: item.tenantId, sourceType: 'COMMERCIAL_TASK', sourceId: item.id, priority: item.dueAt && item.dueAt < now ? 'URGENT' : item.priority === 'URGENT' ? 'URGENT' : 'HIGH', label: item.title, timestamp: item.createdAt, dueAt: item.dueAt })),
+    ...(orderAttention.proofs ?? []).filter((item) => ['RECEIVED', 'UNDER_REVIEW'].includes(item.status)).map((item): AttentionItem => ({ tenantId: item.tenantId, sourceType: 'PAYMENT_PROOF', sourceId: item.id, priority: 'HIGH', label: 'Comprobante pendiente de verificación', timestamp: item.submittedAt })),
+    ...(orderAttention.inventoryConflicts ?? []).map((item): AttentionItem => ({ tenantId: item.tenantId, sourceType: 'INVENTORY_CONFLICT', sourceId: item.id, priority: 'URGENT', label: item.label, timestamp: item.occurredAt })),
   ]
   return items.sort((a, b) => (a.dueAt || a.timestamp).localeCompare(b.dueAt || b.timestamp))
 }

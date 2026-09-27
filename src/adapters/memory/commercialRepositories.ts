@@ -43,7 +43,7 @@ export class MemoryOpportunityRepository implements OpportunityRepository {
 }
 export class MemoryActivityRepository implements CommercialActivityRepository {
   constructor(private readonly db: SampleDatabase) {}
-  async listByTenant(tenantId: string, filters: Parameters<CommercialActivityRepository['listByTenant']>[1] = {}) { return this.db.activities.filter((item) => item.tenantId === tenantId && (!filters?.customerId || item.customerId === filters.customerId) && (!filters?.opportunityId || item.opportunityId === filters.opportunityId) && (!filters?.conversationId || item.conversationId === filters.conversationId)).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)) }
+  async listByTenant(tenantId: string, filters: Parameters<CommercialActivityRepository['listByTenant']>[1] = {}) { return this.db.activities.filter((item) => item.tenantId === tenantId && (!filters?.customerId || item.customerId === filters.customerId) && (!filters?.opportunityId || item.opportunityId === filters.opportunityId) && (!filters?.conversationId || item.conversationId === filters.conversationId) && (!filters?.orderId || item.orderId === filters.orderId) && (!filters?.paymentId || item.paymentId === filters.paymentId)).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)) }
   async append(tenantId: string, item: CommercialActivity) { assertTenant(tenantId, item); this.db.activities.push(item) }
 }
 export class MemoryNoteRepository implements CommercialNoteRepository {

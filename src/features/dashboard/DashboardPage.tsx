@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sampleCommercialApp } from '../../application/sampleApp'
 import { useUIStore } from '../../stores/uiStore'
-import { money, SampleBadge, statusLabel, TenantFilter } from '../commercial/shared'
+import { money, statusLabel } from '../commercial/formatters'
+import { SampleBadge, TenantFilter } from '../commercial/shared'
 
 type Snapshot = Awaited<ReturnType<typeof sampleCommercialApp.loadDashboard>>
 export function DashboardPage() {
@@ -11,7 +12,9 @@ export function DashboardPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState('')
   const load = useCallback(() => { setSnapshot(null); setError(''); void sampleCommercialApp.loadDashboard(scope).then(setSnapshot).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar el dashboard')) }, [scope])
-  useEffect(load, [load])
+ useEffect(() => {
+  queueMicrotask(load)
+}, [load])
   if (error) return <div className="page"><div className="error-banner">{error} <button onClick={load}>Reintentar</button></div></div>
   return <div className="page">
     <div className="page-heading"><div><span className="eyebrow">Commercial command center</span><h1>Operación comercial, sin ruido.</h1><p>Pipeline, atención y negocios derivados de repositorios SAMPLE tenant-aware.</p></div><div className="heading-actions"><SampleBadge /><TenantFilter /></div></div>

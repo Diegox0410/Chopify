@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { belongsToTenant, filterByTenant, canTransitionOpportunity, transitionOpportunity, calculateManagedRevenue, calculateManagementFee, paymentStatusAfterProof, confirmPayment, evaluateCommercialAction, calculateSettlementTotal, hasPermission, isExecutableAutomation, resolveEscalation } from './index'
-import type { AutomationDefinition, CommercialPolicy, HumanEscalation, Opportunity, Order, Payment } from './index'
+import type { AutomationDefinition, CommercialPolicy, HumanEscalation, Opportunity, Payment } from './index'
 
 const attribution = { managed: true, managedBy: 'AUTOMATION' as const, acquisitionSource: 'campaign', conversionChannel: 'WHATSAPP' }
-const order = { productSubtotalCents: 100_00, discountTotalCents: 10_00, shippingTotalCents: 20_00, taxTotalCents: 19_00, attribution } as Pick<Order, 'productSubtotalCents' | 'discountTotalCents' | 'shippingTotalCents' | 'taxTotalCents' | 'attribution'>
+const order = { productSubtotalCents: 100_00, discountTotalCents: 10_00, shippingTotalCents: 20_00, taxTotalCents: 19_00, attributionSnapshot: attribution }
 const opportunity: Opportunity = { id: 'o1', tenantId: 't1', customerId: 'c1', intent: 'PURCHASE_INTENT', status: 'OPEN', estimatedValueCents: 0, currency: 'COP', createdAt: '2026-01-01', updatedAt: '2026-01-01' }
 const policy: CommercialPolicy = { tenantId: 't1', paymentVerificationMode: 'MANUAL_OWNER', allowAutomaticFollowUp: true, allowCartRecovery: false, allowPostSale: true, allowRepurchase: false }
 
@@ -23,9 +23,17 @@ describe('opportunity transitions', () => {
 
 describe('managed revenue and fee', () => {
   it('subtracts attributable discount from product subtotal', () => expect(calculateManagedRevenue(order)).toBe(90_00))
-  it('excludes shipping and tax', () => expect(calculateManagedRevenue({ ...order, shippingTotalCents: 999_00, taxTotalCents: 888_00 })).toBe(90_00))
+  it('excludes shipping and tax', () => {
+  const orderWithPassThroughAmounts = {
+    ...order,
+    shippingTotalCents: 999_00,
+    taxTotalCents: 888_00,
+  }
+
+  expect(calculateManagedRevenue(orderWithPassThroughAmounts)).toBe(90_00)
+})
   it('never produces a negative managed base', () => expect(calculateManagedRevenue({ ...order, discountTotalCents: 200_00 })).toBe(0))
-  it('returns zero base when unmanaged', () => expect(calculateManagedRevenue({ ...order, attribution: { ...attribution, managed: false } })).toBe(0))
+  it('returns zero base when unmanaged', () => expect(calculateManagedRevenue({ ...order, attributionSnapshot: { ...attribution, managed: false } })).toBe(0))
   it('calculates a 5% fee', () => expect(calculateManagementFee(100_00, 500)).toBe(5_00))
   it('calculates a 10% fee', () => expect(calculateManagementFee(100_00, 1000)).toBe(10_00))
   it('returns zero fee when unmanaged', () => expect(calculateManagementFee(100_00, 1000, false)).toBe(0))
@@ -34,7 +42,7 @@ describe('managed revenue and fee', () => {
 
 describe('payment proof boundary', () => {
   it('marks receipt without confirming payment', () => expect(paymentStatusAfterProof()).toBe('PROOF_RECEIVED'))
-  it('requires an explicit actor to confirm', () => { const payment: Payment = { id: 'p1', tenantId: 't1', orderId: 'o1', status: 'PROOF_RECEIVED' }; expect(confirmPayment(payment, 'user-1', 'now')).toMatchObject({ status: 'PAID', confirmedBy: 'user-1' }); expect(payment.status).toBe('PROOF_RECEIVED') })
+  it('requires an explicit actor to confirm', () => { const payment: Payment = { id: 'p1', tenantId: 't1', orderId: 'o1', amountCents: 100, currency: 'COP', status: 'PROOF_RECEIVED', createdAt: 'before', updatedAt: 'before' }; expect(confirmPayment(payment, 'user-1', 'now')).toMatchObject({ status: 'PAID', confirmedBy: 'user-1' }); expect(payment.status).toBe('PROOF_RECEIVED') })
 })
 
 describe('commercial policy', () => {

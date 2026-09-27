@@ -5,7 +5,8 @@ import { sampleCommercialApp } from '../../application/sampleApp'
 import type { CustomerDetail } from '../../application/commercial'
 import type { TaskPriority } from '../../domain'
 import { OPEN_PIPELINE_STATUSES } from '../../domain'
-import { date, EmptyState, money, SampleBadge, StatusPill, tenantNames } from '../commercial/shared'
+import { date, money, tenantNames } from '../commercial/formatters'
+import { EmptyState, SampleBadge, StatusPill } from '../commercial/shared'
 
 type Tab = 'OVERVIEW' | 'OPPORTUNITIES' | 'CONVERSATIONS' | 'ACTIVITY' | 'NOTES' | 'TASKS'
 export function CustomerDetailPage() {
@@ -15,7 +16,9 @@ export function CustomerDetailPage() {
   const [error, setError] = useState('')
   const [action, setAction] = useState<'OPPORTUNITY' | 'NOTE' | 'TASK' | null>(null)
   const load = useCallback(() => { setError(''); void sampleCommercialApp.getCustomerDetail(tenantId, customerId).then(setDetail).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar el cliente')) }, [tenantId, customerId])
-  useEffect(load, [load])
+  useEffect(() => {
+  queueMicrotask(load)
+}, [load])
   const open = useMemo(() => detail?.opportunities.filter((item) => OPEN_PIPELINE_STATUSES.includes(item.status)) ?? [], [detail])
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); try { if (action === 'OPPORTUNITY') await sampleCommercialApp.createOpportunity({ tenantId, customerId, intent: 'PURCHASE_INTENT', estimatedValueCents: Math.round(Number(data.get('value')) * 100), acquisitionSource: detail?.customer.acquisitionSource }); if (action === 'NOTE') await sampleCommercialApp.addCommercialNote({ tenantId, customerId, authorId: 'platform-owner', body: String(data.get('body')) }); if (action === 'TASK') await sampleCommercialApp.createCommercialTask({ tenantId, customerId, title: String(data.get('title')), priority: String(data.get('priority')) as TaskPriority, dueAt: String(data.get('dueAt')) ? new Date(String(data.get('dueAt'))).toISOString() : undefined }); setAction(null); load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible completar la acción') } }
   async function complete(id: string) { try { await sampleCommercialApp.completeCommercialTask(tenantId, id); load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible completar la tarea') } }

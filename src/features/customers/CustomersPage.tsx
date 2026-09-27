@@ -5,7 +5,8 @@ import { sampleCommercialApp } from '../../application/sampleApp'
 import type { Customer, CustomerStatus, Opportunity } from '../../domain'
 import { OPEN_PIPELINE_STATUSES } from '../../domain'
 import { useUIStore } from '../../stores/uiStore'
-import { date, EmptyState, money, SampleBadge, StatusPill, tenantNames, TenantFilter } from '../commercial/shared'
+import { date, money, tenantNames } from '../commercial/formatters'
+import { EmptyState, SampleBadge, StatusPill, TenantFilter } from '../commercial/shared'
 
 export function CustomersPage() {
   const scope = useUIStore((state) => state.tenantScope)
@@ -17,7 +18,9 @@ export function CustomersPage() {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const load = useCallback(() => { setLoading(true); setError(''); void Promise.all([sampleCommercialApp.listCustomers(scope, { search, status: status || undefined }), sampleCommercialApp.listOpportunities(scope)]).then(([nextCustomers, nextOpportunities]) => { setCustomers(nextCustomers); setOpportunities(nextOpportunities) }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar clientes')).finally(() => setLoading(false)) }, [scope, search, status])
-  useEffect(load, [load])
+  useEffect(() => {
+  queueMicrotask(load)
+}, [load])
   const summary = useMemo(() => new Map(customers.map((customer) => { const open = opportunities.filter((item) => item.customerId === customer.id && item.tenantId === customer.tenantId && OPEN_PIPELINE_STATUSES.includes(item.status)); return [customer.id, { count: open.length, value: open.reduce((sum, item) => sum + item.estimatedValueCents, 0) }] })), [customers, opportunities])
   async function create(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); const tenantId = String(data.get('tenantId')); try { await sampleCommercialApp.createCustomer({ tenantId, name: String(data.get('name')), phone: String(data.get('phone')) || undefined, email: String(data.get('email')) || undefined, acquisitionSource: String(data.get('source')) || undefined }); setCreating(false); event.currentTarget.reset(); load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible crear el cliente') } }
   return <div className="page"><div className="page-heading"><div><span className="eyebrow">CRM operativo</span><h1>Clientes</h1><p>Identidades comerciales separadas por negocio, con pipeline y actividad contextual.</p></div><div className="heading-actions"><SampleBadge /><button className="primary-button" onClick={() => setCreating((value) => !value)}><Plus size={16} /> Crear cliente</button></div></div>

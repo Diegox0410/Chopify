@@ -4,7 +4,19 @@ import { Link } from 'react-router-dom'
 import { sampleCommercialApp } from '../../application/sampleApp'
 import type { Customer, Opportunity } from '../../domain'
 import { useUIStore } from '../../stores/uiStore'
-import { date, EmptyState, money, operationalStatuses, SampleBadge, StatusPill, statusLabel, tenantNames, TenantFilter } from '../commercial/shared'
+import {
+  date,
+  money,
+  operationalStatuses,
+  statusLabel,
+  tenantNames,
+} from '../commercial/formatters'
+import {
+  EmptyState,
+  SampleBadge,
+  StatusPill,
+  TenantFilter,
+} from '../commercial/shared'
 
 export function OpportunitiesPage() {
   const scope = useUIStore((state) => state.tenantScope)
@@ -15,7 +27,9 @@ export function OpportunitiesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const load = useCallback(() => { setLoading(true); setError(''); void Promise.all([sampleCommercialApp.listOpportunities(scope), sampleCommercialApp.listCustomers(scope)]).then(([opportunities, nextCustomers]) => { setItems(opportunities); setCustomers(nextCustomers) }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar oportunidades')).finally(() => setLoading(false)) }, [scope])
-  useEffect(load, [load])
+ useEffect(() => {
+  queueMicrotask(load)
+}, [load])
   const customerByKey = useMemo(() => new Map(customers.map((item) => [`${item.tenantId}:${item.id}`, item])), [customers])
   const filtered = items.filter((item) => { const customer = customerByKey.get(`${item.tenantId}:${item.customerId}`); return !query || `${customer?.name} ${item.intent} ${item.status}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()) })
   const closed = filtered.filter((item) => !operationalStatuses.includes(item.status))

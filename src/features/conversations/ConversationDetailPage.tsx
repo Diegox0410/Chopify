@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { sampleCommercialApp } from '../../application/sampleApp'
 import type { CommercialActivity, Conversation, Customer, Opportunity } from '../../domain'
-import { date, money, SampleBadge, StatusPill, tenantNames } from '../commercial/shared'
+import { date, money, tenantNames } from '../commercial/formatters'
+import { SampleBadge, StatusPill } from '../commercial/shared'
 
 export function ConversationDetailPage() {
   const { tenantId = '', conversationId = '' } = useParams()
@@ -13,7 +14,10 @@ export function ConversationDetailPage() {
   const [activities, setActivities] = useState<readonly CommercialActivity[]>([])
   const [error, setError] = useState('')
   const load = useCallback(() => { setError(''); void sampleCommercialApp.getConversation(tenantId, conversationId).then(async (next) => { setItem(next); if (next) { const [detail, linked, timeline] = await Promise.all([sampleCommercialApp.getCustomerDetail(tenantId, next.customerId), sampleCommercialApp.listOpportunities(tenantId), sampleCommercialApp.listCommercialActivities(tenantId, { conversationId })]); setCustomer(detail?.customer ?? null); setOpportunities(linked.filter((opportunity) => opportunity.conversationId === conversationId)); setActivities(timeline) } }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar la conversación')) }, [tenantId, conversationId])
-  useEffect(load, [load])
+  useEffect(() => {
+  queueMicrotask(load)
+}, [load])
+
   async function run(operation: () => Promise<unknown>) { try { await operation(); load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Operación rechazada') } }
   if (!item) return <div className="page">{error ? <div className="error-banner">{error}</div> : <div className="loading-state">Cargando conversación…</div>}</div>
   return <div className="page"><Link to="/conversations" className="back-link"><ArrowLeft size={15} /> Volver a conversaciones</Link><div className="detail-hero"><div><div className="detail-kicker"><SampleBadge /><span>{tenantNames[tenantId]} · {item.channel}</span></div><h1>{customer?.name || 'Conversación'}</h1><div className="detail-meta"><StatusPill value={item.status} /><span>{item.assignedMode}</span><span>{item.assignedUserId || item.automationAgent || 'Sin asignar'}</span></div></div></div><div className="info-banner">Mensajería externa aún no conectada. Solo se muestra metadata operacional.</div>

@@ -5,7 +5,7 @@
 | H0 Foundation | Hecho | Stack, capas, shell, contratos y QA |
 | H1 Multi-tenant Commercial Core | Hecho | Modelos tenant-scoped y reglas comerciales puras |
 | H2 CRM + Opportunities | Hecho | CRM, conversaciones, pipeline, tareas, notas y adapter SAMPLE tenant-aware |
-| H3 Orders + Attribution | Pendiente | Adapters de pedidos y operación |
+| H3 Orders + Attribution | En progreso | Core de pedidos, atribución, reservas, verificación de pago y fulfillment implementado en SAMPLE; faltan UI operacional y QA A–G/responsive |
 | H4 Automation Engine | Pendiente | Evaluador, scheduler y outbox |
 | H5 Super Admin | Pendiente | Módulos completos, filtros y detalle |
 | H6 Billing / Settlements | Pendiente | Ciclos de liquidación y ajustes |
@@ -19,3 +19,8 @@
 “Hecho” en H0/H1 significa foundation y core solicitados en este alcance, no módulos de producción ni integraciones.
 
 “Hecho” en H2 significa flujo operacional SAMPLE verificado. No implica persistencia remota, canales externos, pedidos, pagos ni datos reales.
+
+
+## Criterio de cierre H3
+
+El core transaccional y sus pruebas automatizadas están implementados y verificados en SAMPLE. H3 no pasa a “Hecho” hasta completar la UI operacional de Orders, Order Detail, Payment Review y Fulfillment, integrar Attention/Dashboard y validar los flujos A–G y responsive en 1440/1024/390. Las integraciones externas permanecen fuera de H3.
