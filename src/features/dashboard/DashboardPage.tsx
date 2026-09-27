@@ -1,20 +1,24 @@
-import { ArrowRight, Building2, CircleDollarSign, Inbox, MessageSquareWarning, Package, Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { loadDashboard, type DashboardSnapshot } from '../../application/dashboard'
-import { SampleEscalationRepository, SampleTenantRepository } from '../../adapters/memory/dashboardRepositories'
+import { AlertTriangle, ArrowRight, Building2, CircleDollarSign, Sparkles, Target } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { sampleCommercialApp } from '../../application/sampleApp'
+import { useUIStore } from '../../stores/uiStore'
+import { money, SampleBadge, statusLabel, TenantFilter } from '../commercial/shared'
 
-const tenants = new SampleTenantRepository()
-const escalations = new SampleEscalationRepository()
-
+type Snapshot = Awaited<ReturnType<typeof sampleCommercialApp.loadDashboard>>
 export function DashboardPage() {
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null)
-  useEffect(() => { void loadDashboard(tenants, escalations).then(setSnapshot) }, [])
-  return <div className="page"><div className="page-heading"><div><span className="eyebrow">Visión operativa</span><h1>Buenos días, equipo.</h1><p>Una vista sobria del estado de la plataforma. Los indicadores se activarán al conectar repositorios reales.</p></div><button className="primary-button">Ver negocios <ArrowRight size={16} /></button></div>
-    <section className="metric-grid" aria-label="Métricas futuras"><Metric icon={CircleDollarSign} label="Ventas gestionadas" /><Metric icon={Package} label="Pedidos" /><Metric icon={Sparkles} label="Resolución automática" /><Metric icon={MessageSquareWarning} label="Escalaciones humanas" value={snapshot?.attentionCount.toString()} /></section>
-    <div className="dashboard-grid"><section className="panel attention-panel"><div className="panel-header"><div><span className="eyebrow">Cola operativa</span><h2>Requiere tu atención</h2></div><span className="count-badge">{snapshot?.attentionCount ?? '—'}</span></div><div className="empty-state"><div className="empty-icon"><Inbox size={22} /></div><strong>Sin excepciones de muestra</strong><p>Las alertas por pago, inventario, entrega o solicitud humana aparecerán aquí.</p></div></section>
-      <section className="panel"><div className="panel-header"><div><span className="eyebrow">Portafolio</span><h2>Negocios</h2></div><button className="text-button">Abrir directorio <ArrowRight size={14} /></button></div><div className="business-list">{snapshot?.tenants.map((tenant, index) => <div className="business-row" key={tenant.id}><div className={`business-avatar tone-${index + 1}`}>{tenant.name.slice(0, 2)}</div><div><strong>{tenant.name}</strong><span>Integración no conectada</span></div><span className="status-pill">{tenant.status}</span><button className="row-action" aria-label={`Abrir ${tenant.name}`}><ArrowRight size={16} /></button></div>)}</div></section></div>
-    <footer className="data-note"><Building2 size={16} /><span><strong>Modo SAMPLE:</strong> solo nombres de tenants y estados de onboarding. No hay ventas, pedidos ni clientes cargados.</span></footer>
+  const scope = useUIStore((state) => state.tenantScope)
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  const [error, setError] = useState('')
+  const load = useCallback(() => { setSnapshot(null); setError(''); void sampleCommercialApp.loadDashboard(scope).then(setSnapshot).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar el dashboard')) }, [scope])
+  useEffect(load, [load])
+  if (error) return <div className="page"><div className="error-banner">{error} <button onClick={load}>Reintentar</button></div></div>
+  return <div className="page">
+    <div className="page-heading"><div><span className="eyebrow">Commercial command center</span><h1>Operación comercial, sin ruido.</h1><p>Pipeline, atención y negocios derivados de repositorios SAMPLE tenant-aware.</p></div><div className="heading-actions"><SampleBadge /><TenantFilter /></div></div>
+    <section className="metric-grid" aria-label="Métricas comerciales"><Metric icon={Target} label="Oportunidades abiertas" value={snapshot?.conversions.open.toString()} note="Etapas operativas" /><Metric icon={CircleDollarSign} label="Pipeline estimado" value={snapshot ? money(snapshot.pipeline.totalOpenPipelineValue) : undefined} note="No es revenue real" /><Metric icon={Sparkles} label="Oportunidades ganadas" value={snapshot?.pipeline.wonCount.toString()} note="Resultado SAMPLE" /><Metric icon={AlertTriangle} label="Requiere atención" value={snapshot?.attention.length.toString()} note="Conversaciones y tareas" /></section>
+    <div className="dashboard-grid"><section className="panel"><div className="panel-header"><div><span className="eyebrow">Pipeline overview</span><h2>Etapas operativas</h2></div><Link className="text-link" to="/opportunities">Abrir pipeline <ArrowRight size={14} /></Link></div><div className="stage-summary">{(['OPEN','QUALIFIED','CART_STARTED','ORDER_CREATED'] as const).map((status) => <div key={status}><span>{statusLabel(status)}</span><strong>{snapshot?.pipeline.countByStatus[status] ?? '—'}</strong><small>{snapshot ? money(snapshot.pipeline.estimatedValueByStatus[status]) : 'Cargando'}</small></div>)}</div></section>
+      <section className="panel"><div className="panel-header"><div><span className="eyebrow">Requires attention</span><h2>Cola priorizada</h2></div><span className="count-badge">{snapshot?.attention.length ?? '—'}</span></div><div className="attention-list">{snapshot?.attention.length === 0 && <p className="muted-copy">Sin elementos pendientes.</p>}{snapshot?.attention.slice(0, 5).map((item) => <div className="attention-row" key={`${item.sourceType}-${item.sourceId}`}><span className={`priority-dot priority-${item.priority.toLowerCase()}`} /><div><strong>{item.label}</strong><small>{item.sourceType.replaceAll('_', ' ')} · {item.priority}</small></div><span>{item.tenantId.replace('tenant-', '').toUpperCase()}</span></div>)}</div></section></div>
+    <section className="panel businesses-panel"><div className="panel-header"><div><span className="eyebrow">Businesses</span><h2>Portafolio visible</h2></div></div><div className="business-cards">{snapshot?.tenants.map((tenant) => <article key={tenant.id}><div className="business-avatar">{tenant.name.slice(0, 2)}</div><div><strong>{tenant.name}</strong><span>{tenant.status} · repositorio SAMPLE</span></div><Building2 size={17} /></article>)}</div></section>
   </div>
 }
-
-function Metric({ icon: Icon, label, value }: { icon: typeof CircleDollarSign; label: string; value?: string }) { return <article className="metric"><div className="metric-top"><span className="metric-icon"><Icon size={18} /></span><span className="metric-state">SIN FUENTE</span></div><span className="metric-label">{label}</span><strong>{value ?? '—'}</strong><small>Pendiente de adapter</small></article> }
+function Metric({ icon: Icon, label, value, note }: { icon: typeof Target; label: string; value?: string; note: string }) { return <article className="metric"><div className="metric-top"><span className="metric-icon"><Icon size={18} /></span><span className="metric-state">SAMPLE</span></div><span className="metric-label">{label}</span><strong>{value ?? '—'}</strong><small>{note}</small></article> }

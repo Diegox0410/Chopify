@@ -4,7 +4,7 @@ import type { AutomationDefinition, CommercialPolicy, HumanEscalation, Opportuni
 
 const attribution = { managed: true, managedBy: 'AUTOMATION' as const, acquisitionSource: 'campaign', conversionChannel: 'WHATSAPP' }
 const order = { productSubtotalCents: 100_00, discountTotalCents: 10_00, shippingTotalCents: 20_00, taxTotalCents: 19_00, attribution } as Pick<Order, 'productSubtotalCents' | 'discountTotalCents' | 'shippingTotalCents' | 'taxTotalCents' | 'attribution'>
-const opportunity: Opportunity = { id: 'o1', tenantId: 't1', customerId: 'c1', intent: 'PURCHASE_INTENT', status: 'OPEN', currency: 'COP', createdAt: '2026-01-01', updatedAt: '2026-01-01' }
+const opportunity: Opportunity = { id: 'o1', tenantId: 't1', customerId: 'c1', intent: 'PURCHASE_INTENT', status: 'OPEN', estimatedValueCents: 0, currency: 'COP', createdAt: '2026-01-01', updatedAt: '2026-01-01' }
 const policy: CommercialPolicy = { tenantId: 't1', paymentVerificationMode: 'MANUAL_OWNER', allowAutomaticFollowUp: true, allowCartRecovery: false, allowPostSale: true, allowRepurchase: false }
 
 describe('tenant isolation helpers', () => {

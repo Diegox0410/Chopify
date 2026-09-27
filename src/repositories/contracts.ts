@@ -1,12 +1,16 @@
-import type { AuditEvent, CommercialAgreement, Conversation, Customer, HumanEscalation, ManagedSale, Opportunity, Order, Settlement, Tenant } from '../domain'
+import type { AuditEvent, CommercialActivity, CommercialAgreement, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, CustomerStatus, HumanEscalation, ManagedSale, Opportunity, OpportunityStatus, Order, Settlement, Tenant } from '../domain'
 
 export interface TenantRepository { list(): Promise<readonly Tenant[]>; getById(id: string): Promise<Tenant | null> }
-export interface CustomerRepository { getById(tenantId: string, id: string): Promise<Customer | null>; save(customer: Customer): Promise<void> }
-export interface ConversationRepository { getById(tenantId: string, id: string): Promise<Conversation | null>; save(conversation: Conversation): Promise<void> }
-export interface OpportunityRepository { list(tenantId: string): Promise<readonly Opportunity[]>; getById(tenantId: string, id: string): Promise<Opportunity | null>; save(opportunity: Opportunity): Promise<void> }
+export interface CustomerRepository { listByTenant(tenantId: string, filters?: { search?: string; status?: CustomerStatus }): Promise<readonly Customer[]>; getById(tenantId: string, id: string): Promise<Customer | null>; save(tenantId: string, customer: Customer): Promise<void> }
+export interface CustomerIdentityRepository { listByCustomer(tenantId: string, customerId: string): Promise<readonly CustomerIdentity[]>; resolve(tenantId: string, channel: CustomerIdentity['channel'], externalIdentifier: string): Promise<CustomerIdentity | null>; save(tenantId: string, identity: CustomerIdentity): Promise<void> }
+export interface ConversationRepository { listByTenant(tenantId: string, filters?: { status?: Conversation['status']; channel?: Conversation['channel']; humanRequired?: boolean }): Promise<readonly Conversation[]>; getById(tenantId: string, id: string): Promise<Conversation | null>; save(tenantId: string, conversation: Conversation): Promise<void> }
+export interface OpportunityRepository { listByTenant(tenantId: string, filters?: { status?: OpportunityStatus; customerId?: string }): Promise<readonly Opportunity[]>; getById(tenantId: string, id: string): Promise<Opportunity | null>; save(tenantId: string, opportunity: Opportunity): Promise<void> }
+export interface CommercialActivityRepository { listByTenant(tenantId: string, filters?: { customerId?: string; opportunityId?: string; conversationId?: string }): Promise<readonly CommercialActivity[]>; append(tenantId: string, activity: CommercialActivity): Promise<void> }
+export interface CommercialNoteRepository { listByCustomer(tenantId: string, customerId: string): Promise<readonly CommercialNote[]>; save(tenantId: string, note: CommercialNote): Promise<void> }
+export interface CommercialTaskRepository { listByTenant(tenantId: string, filters?: { customerId?: string; status?: CommercialTask['status'] }): Promise<readonly CommercialTask[]>; getById(tenantId: string, id: string): Promise<CommercialTask | null>; save(tenantId: string, task: CommercialTask): Promise<void> }
 export interface OrderRepository { list(tenantId: string): Promise<readonly Order[]>; getById(tenantId: string, id: string): Promise<Order | null>; save(order: Order): Promise<void> }
 export interface AgreementRepository { getEffective(tenantId: string, at: string): Promise<CommercialAgreement | null> }
 export interface ManagedSaleRepository { list(tenantId: string): Promise<readonly ManagedSale[]>; save(sale: ManagedSale): Promise<void> }
-export interface EscalationRepository { listOpen(tenantId?: string): Promise<readonly HumanEscalation[]>; save(escalation: HumanEscalation): Promise<void> }
+export interface EscalationRepository { listOpen(tenantId: string): Promise<readonly HumanEscalation[]>; save(tenantId: string, escalation: HumanEscalation): Promise<void> }
 export interface SettlementRepository { list(tenantId: string): Promise<readonly Settlement[]>; save(settlement: Settlement): Promise<void> }
 export interface AuditRepository { append(event: AuditEvent): Promise<void> }

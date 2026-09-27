@@ -1,4 +1,4 @@
-import type { Customer, HumanEscalation, Opportunity, OpportunityStatus, Order, PaymentProof } from '../domain'
+import type { Customer, HumanEscalation, Opportunity, OpportunityLossReason, Order, PaymentProof } from '../domain'
 
 export interface ProductSummary { id: string; name: string; priceCents: number; currency: string }
 export interface ProductDetail extends ProductSummary { description?: string }
@@ -12,7 +12,13 @@ export interface CommerceToolsPort {
   getCustomer(tenantId: string, customerId: string): Promise<Customer | null>
   createCustomer(input: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>): Promise<Customer>
   createOpportunity(input: Omit<Opportunity, 'id' | 'createdAt' | 'updatedAt'>): Promise<Opportunity>
-  updateOpportunity(tenantId: string, opportunityId: string, status: OpportunityStatus): Promise<Opportunity>
+  qualifyOpportunity(tenantId: string, opportunityId: string): Promise<Opportunity>
+  startOpportunityCart(tenantId: string, opportunityId: string): Promise<Opportunity>
+  markOpportunityOrderCreated(tenantId: string, opportunityId: string): Promise<Opportunity>
+  winOpportunity(tenantId: string, opportunityId: string): Promise<Opportunity>
+  loseOpportunity(tenantId: string, opportunityId: string, reason: OpportunityLossReason, detail?: string): Promise<Opportunity>
+  abandonOpportunity(tenantId: string, opportunityId: string, reason?: string): Promise<Opportunity>
+  reopenOpportunity(tenantId: string, opportunityId: string): Promise<Opportunity>
   createCartRequest(input: CartRequest): Promise<{ requestId: string }>
   createOrder(input: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>): Promise<Order>
   getOrder(tenantId: string, orderId: string): Promise<Order | null>

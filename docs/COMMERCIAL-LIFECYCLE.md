@@ -8,3 +8,13 @@
 4. ManagedSale congela el acuerdo comercial usado y calcula la base sobre subtotal de productos menos descuentos atribuibles. Envío e impuestos quedan fuera.
 5. El comprobante recibido deja el pago en `PROOF_RECEIVED`; solo una aprobación humana explícita produce `PAID`.
 6. Settlement agrupa fees en líneas auditables; no es facturación fiscal.
+
+## Pipeline operativo H2
+
+`OPEN → QUALIFIED → CART_STARTED → ORDER_CREATED → WON`
+
+Las etapas `OPEN`, `QUALIFIED` y `CART_STARTED` pueden terminar en `LOST` o `ABANDONED`. `ORDER_CREATED` puede terminar en `WON` o `LOST`. `WON` y `LOST` son terminales. Solo la operación explícita `reopenOpportunity` permite `ABANDONED → OPEN`.
+
+Las transiciones son funciones puras y no se permite asignar el estado desde React. Cada caso de uso persiste el resultado y agrega un `CommercialActivity` visible en el timeline.
+
+`ORDER_CREATED` no crea un pedido: la creación y atribución de `Order` pertenecen a H3.

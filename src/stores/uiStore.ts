@@ -1,4 +1,4 @@
 import { create } from 'zustand'
 
-interface UIState { sidebarOpen: boolean; setSidebarOpen(open: boolean): void; toggleSidebar(): void }
-export const useUIStore = create<UIState>((set) => ({ sidebarOpen: false, setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }), toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })) }))
+interface UIState { sidebarOpen: boolean; tenantScope: string; setSidebarOpen(open: boolean): void; toggleSidebar(): void; setTenantScope(scope: string): void }
+export const useUIStore = create<UIState>((set) => ({ sidebarOpen: false, tenantScope: 'ALL', setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }), toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })), setTenantScope: (tenantScope) => set({ tenantScope }) }))
