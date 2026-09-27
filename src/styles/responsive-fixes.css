@@ -1,0 +1,5 @@
+.sidebar .sidebar-close { display: none; }
+
+@media (max-width: 760px) {
+  .sidebar .sidebar-close { display: grid; }
+}
