@@ -12,7 +12,7 @@ export interface CustomerDetail { customer: Customer; opportunities: readonly Op
 export class CommercialApplication {
   private sequence = 100
   constructor(private readonly repositories: CommercialRepositories, private readonly clock: () => string = () => new Date().toISOString()) {}
-  private id(prefix: string) { this.sequence += 1; return `${prefix}-${this.sequence}` }
+  private id(prefix: string) { this.sequence += 1; const uuid = globalThis.crypto?.randomUUID?.(); return uuid ? `${prefix}-${uuid}` : `${prefix}-${Date.now()}-${this.sequence}` }
   private async tenantIds(scope: TenantScope) { const tenants = await this.repositories.tenants.list(); if (scope === 'ALL') return tenants.map((item) => item.id); if (!tenants.some((item) => item.id === scope)) throw new Error('Unknown tenant'); return [scope] }
   private async aggregate<T>(scope: TenantScope, query: (tenantId: string) => Promise<readonly T[]>): Promise<T[]> { const ids = await this.tenantIds(scope); return (await Promise.all(ids.map(query))).flat() }
   private async activity(tenantId: string, customerId: string, type: CommercialActivityType, summary: string, links: { opportunityId?: string; conversationId?: string } = {}) { const occurredAt = this.clock(); await this.repositories.activities.append(tenantId, { id: this.id('activity'), tenantId, customerId, type, actorType: 'PLATFORM_USER', actorId: 'platform-owner', occurredAt, summary, ...links }) }

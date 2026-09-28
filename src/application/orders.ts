@@ -9,7 +9,7 @@ export interface OrderDetail { order: Order; payment: Payment; proofs: readonly 
 export class OrderApplication {
   private sequence = 500
   constructor(private readonly repositories: OrderApplicationRepositories, private readonly clock: () => string = () => new Date().toISOString()) {}
-  private id(prefix: string) { this.sequence += 1; return `${prefix}-${this.sequence}` }
+  private id(prefix: string) { this.sequence += 1; const uuid = globalThis.crypto?.randomUUID?.(); return uuid ? `${prefix}-${uuid}` : `${prefix}-${Date.now()}-${this.sequence}` }
   private actorType(actor: ActorContext) { return actor.role === 'AUTOMATION' ? 'AUTOMATION' as const : actor.role === 'SYSTEM' ? 'SYSTEM' as const : actor.role === 'PLATFORM_OWNER' ? 'PLATFORM_USER' as const : 'TENANT_USER' as const }
   private key(key: string) { if (!key.trim()) throw new Error('Idempotency key is required'); return key.trim() }
   private async tenantIds(scope: TenantScope) { const tenants = await this.repositories.tenants.list(); if (scope === 'ALL') return tenants.map((item) => item.id); if (!tenants.some((item) => item.id === scope)) throw new Error('Unknown tenant'); return [scope] }
