@@ -9,7 +9,7 @@ import { CustomerIdentityResolver } from './customerIdentityResolver.js'
 import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway.js'
 
 export interface CommerceRuntimeState {schemaVersion:2;commercial:SampleDatabase;orders:SampleOrderDatabase}
-export interface CommerceStateRecord {state:CommerceRuntimeState;version:string|null}
+export interface CommerceStateRecord {state:CommerceRuntimeState;version:string|null;migrated?:boolean}
 export interface CommerceStateStore {
  load(tenantId:string):Promise<CommerceStateRecord|null>
  save(tenantId:string,state:CommerceRuntimeState,expectedVersion:string|null):Promise<string>
@@ -61,7 +61,8 @@ export class PersistentCommerceRuntime{
   for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
    const loaded=await this.store.load(request.tenantId);const state=loaded?.state??createTenantCommerceState(request.tenantId)
    const result=await buildGateway(state).execute(request)
-   if(!MUTATIONS.has(request.operation))return result
+   const shouldPersist=MUTATIONS.has(request.operation)||!loaded||loaded.migrated===true
+   if(!shouldPersist)return result
    try{await this.store.save(request.tenantId,state,loaded?.version??null);return result}
    catch(error){if(!(error instanceof CommerceStateConflictError)||attempt===this.maxAttempts)throw error}
   }
