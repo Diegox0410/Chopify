@@ -7,8 +7,8 @@ import {
   releasePosition,
   releaseReservation,
   reservePosition,
-} from './index'
-import type { InventoryPosition, InventoryReservation } from './index'
+} from './index.js'
+import type { InventoryPosition, InventoryReservation } from './index.js'
 
 const position = (): InventoryPosition => ({ tenantId: 'tenant-mg', productId: 'p1', onHand: 10, reserved: 3 })
 const reservation = (): InventoryReservation => ({

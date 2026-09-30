@@ -1,8 +1,8 @@
-import type { ActorContext, CommerceProduct, GanoBotInbound, GanoBotReply, GanoBotSession, GanoBotToolName, GanoBotToolTrace, OrderItemRequest } from '../domain'
-import { classifyGanoBotIntent, ganobotToolPolicy } from '../domain'
-import type { BusinessCommerceAdapter } from './commercePort'
-import type { CommercialApplication } from './commercial'
-import type { OrderApplication } from './orders'
+import type { ActorContext, CommerceProduct, GanoBotInbound, GanoBotReply, GanoBotSession, GanoBotToolName, GanoBotToolTrace, OrderItemRequest } from '../domain/index.js'
+import { classifyGanoBotIntent, ganobotToolPolicy } from '../domain/index.js'
+import type { BusinessCommerceAdapter } from './commercePort.js'
+import type { CommercialApplication } from './commercial.js'
+import type { OrderApplication } from './orders.js'
 
 export interface GanoBotSessionRepository { get(tenantId:string,conversationId:string):Promise<GanoBotSession|null>; save(item:GanoBotSession):Promise<void>; list(scope:string):Promise<readonly GanoBotSession[]> }
 export interface GanoBotTraceRepository { append(item:GanoBotToolTrace):Promise<void>; list(scope:string):Promise<readonly GanoBotToolTrace[]> }

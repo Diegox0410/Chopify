@@ -1,6 +1,6 @@
 import { describe,expect,it } from 'vitest'
-import type { AutomationDefinition,AutomationEvent,OutboxEvent } from './automation'
-import { completeOutbox,failOutbox,matchesAutomation,startOutbox } from './automation'
+import type { AutomationDefinition,AutomationEvent,OutboxEvent } from './automation.js'
+import { completeOutbox,failOutbox,matchesAutomation,startOutbox } from './automation.js'
 const def:AutomationDefinition={id:'a',tenantId:'t',name:'x',status:'ACTIVE',trigger:{type:'ORDER_CREATED'},conditions:[{field:'amount',operator:'GTE',value:100}],actions:[{type:'CREATE_FOLLOW_UP'}]}
 const event:AutomationEvent={id:'e',tenantId:'t',type:'ORDER_CREATED',occurredAt:'x',entityType:'ORDER',entityId:'o',data:{amount:120}}
 const out:OutboxEvent={id:'o',tenantId:'t',automationId:'a',sourceEventId:'e',actionType:'CREATE_FOLLOW_UP',status:'PENDING',payload:{kind:'FOLLOW_UP',customerId:'c',title:'x'},attempts:0,maxAttempts:2,availableAt:'x',createdAt:'x',updatedAt:'x'}

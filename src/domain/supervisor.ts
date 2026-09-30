@@ -3,7 +3,7 @@ import type {
   HumanEscalation,
   Order,
   PaymentProof,
-} from './index'
+} from './index.js'
 
 export type SupervisorState =
   | 'BOT_RESOLVED'

@@ -1,4 +1,4 @@
-import type { EntityId, ISODateTime, TenantScoped } from './shared'
+import type { EntityId, ISODateTime, TenantScoped } from './shared.js'
 
 export type AutomationStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED'
 export type AutomationTriggerType = 'ORDER_CREATED' | 'PAYMENT_CONFIRMED' | 'ORDER_DISPATCHED' | 'ORDER_DELIVERED' | 'CART_ABANDONED' | 'REPURCHASE_WINDOW_REACHED'

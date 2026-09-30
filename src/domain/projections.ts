@@ -1,4 +1,4 @@
-import type { CommercialTask, HumanEscalation, Opportunity, OpportunityStatus, Conversation, PaymentProof } from './index'
+import type { CommercialTask, HumanEscalation, Opportunity, OpportunityStatus, Conversation, PaymentProof } from './index.js'
 
 export const OPEN_PIPELINE_STATUSES: readonly OpportunityStatus[] = ['OPEN', 'QUALIFIED', 'CART_STARTED', 'ORDER_CREATED']
 export const OPERATIONAL_PIPELINE_STATUSES = OPEN_PIPELINE_STATUSES

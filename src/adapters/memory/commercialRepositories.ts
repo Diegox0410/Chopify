@@ -1,6 +1,6 @@
-import type { CommercialActivity, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, HumanEscalation, Opportunity, Tenant } from '../../domain'
-import type { CommercialActivityRepository, CommercialNoteRepository, CommercialTaskRepository, ConversationRepository, CustomerIdentityRepository, CustomerRepository, EscalationRepository, OpportunityRepository, TenantRepository } from '../../repositories/contracts'
-import { sampleActivities, sampleConversations, sampleCustomers, sampleEscalations, sampleIdentities, sampleNotes, sampleOpportunities, sampleTasks, sampleTenants } from '../../data/sample'
+import type { CommercialActivity, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, HumanEscalation, Opportunity, Tenant } from '../../domain/index.js'
+import type { CommercialActivityRepository, CommercialNoteRepository, CommercialTaskRepository, ConversationRepository, CustomerIdentityRepository, CustomerRepository, EscalationRepository, OpportunityRepository, TenantRepository } from '../../repositories/contracts.js'
+import { sampleActivities, sampleConversations, sampleCustomers, sampleEscalations, sampleIdentities, sampleNotes, sampleOpportunities, sampleTasks, sampleTenants } from '../../data/sample/index.js'
 
 export interface SampleDatabase {
   tenants: Tenant[]; customers: Customer[]; identities: CustomerIdentity[]; conversations: Conversation[]; opportunities: Opportunity[]

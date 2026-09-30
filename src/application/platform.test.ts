@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest'
-import {PlatformApplication} from './platform'
+import {PlatformApplication} from './platform.js'
 describe('H5-H7 application',()=>{
  const app=new PlatformApplication()
  it('lists all businesses',async()=>expect(await app.businesses()).toHaveLength(3))

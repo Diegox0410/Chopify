@@ -1,5 +1,5 @@
-import type { AutomationActionType, AutonomyLevel } from './automation'
-import type { TenantScoped } from './shared'
+import type { AutomationActionType, AutonomyLevel } from './automation.js'
+import type { TenantScoped } from './shared.js'
 
 export type PaymentVerificationMode = 'MANUAL_OWNER' | 'MANUAL_AUTHORIZED_USER'
 export interface CommercialPolicy extends TenantScoped { paymentVerificationMode: PaymentVerificationMode; allowAutomaticFollowUp: boolean; allowCartRecovery: boolean; allowPostSale: boolean; allowRepurchase: boolean }

@@ -1,4 +1,4 @@
-import type { AutomationDefinition, AutomationPolicy, OutboxEvent } from '../../domain'
+import type { AutomationDefinition, AutomationPolicy, OutboxEvent } from '../../domain/index.js'
 const rules = (tenantId:string, prefix:string): AutomationDefinition[] => [
  { id:`auto-${prefix}-paid`, tenantId, name:'Seguimiento después del pago', status:'ACTIVE', trigger:{type:'PAYMENT_CONFIRMED'}, conditions:[], actions:[{type:'CREATE_FOLLOW_UP',config:{title:'Confirmar preparación del pedido'}},{type:'SEND_MESSAGE_REQUEST',config:{templateKey:'payment_confirmed'}}] },
  { id:`auto-${prefix}-delivered`, tenantId, name:'Postventa de pedido entregado', status:'ACTIVE', trigger:{type:'ORDER_DELIVERED'}, conditions:[], actions:[{type:'CREATE_FOLLOW_UP',config:{title:'Seguimiento postventa'}},{type:'SEND_MESSAGE_REQUEST',config:{templateKey:'post_sale'}}] },

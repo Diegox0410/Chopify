@@ -1,4 +1,4 @@
-import type { ActorContext, Order } from '../../domain'
+import type { ActorContext, Order } from '../../domain/index.js'
 
 export const ownerActor = (tenantId: string): ActorContext => ({
   actorId: `sample-owner-${tenantId}`,

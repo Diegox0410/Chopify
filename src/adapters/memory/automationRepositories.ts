@@ -1,6 +1,6 @@
-import type { AutomationDefinition, AutomationEvaluation, AutomationExecution, AutomationPolicy, OutboxEvent } from '../../domain'
-import type { AutomationDefinitionRepository, AutomationEvaluationRepository, AutomationExecutionRepository, AutomationPolicyRepository, OutboxRepository } from '../../repositories/automationContracts'
-import { sampleAutomations, sampleAutomationPolicies, sampleOutbox } from '../../data/sample/automation'
+import type { AutomationDefinition, AutomationEvaluation, AutomationExecution, AutomationPolicy, OutboxEvent } from '../../domain/index.js'
+import type { AutomationDefinitionRepository, AutomationEvaluationRepository, AutomationExecutionRepository, AutomationPolicyRepository, OutboxRepository } from '../../repositories/automationContracts.js'
+import { sampleAutomations, sampleAutomationPolicies, sampleOutbox } from '../../data/sample/automation.js'
 export interface AutomationDatabase { automations:AutomationDefinition[]; policies:AutomationPolicy[]; evaluations:AutomationEvaluation[]; outbox:OutboxEvent[]; executions:AutomationExecution[] }
 export const createAutomationDatabase=():AutomationDatabase=>({automations:sampleAutomations.map(x=>({...x,conditions:[...x.conditions],actions:[...x.actions]})),policies:sampleAutomationPolicies.map(x=>({...x})),evaluations:[],outbox:sampleOutbox.map(x=>({...x})),executions:[]})
 const guard=(tenantId:string,item:{tenantId:string})=>{if(item.tenantId!==tenantId)throw new Error('Cross-tenant mutation rejected')}

@@ -1,13 +1,13 @@
 import {describe,expect,it} from 'vitest'
-import {createSampleRepositories} from '../adapters/memory/commercialRepositories'
-import {createSampleOrderRepositories} from '../adapters/memory/orderRepositories'
-import {createMemoryGanoBotRepositories} from '../adapters/memory/ganobotRepositories'
-import {createMemoryWhatsAppRepositories,SampleWhatsAppAdapter} from '../adapters/memory/whatsappRepositories'
-import {CommercialApplication} from './commercial'
-import {OrderApplication} from './orders'
-import {GanoBotApplication} from './ganobot'
-import {WhatsAppApplication} from './whatsapp'
-import type {WhatsAppConnection} from '../domain'
+import {createSampleRepositories} from '../adapters/memory/commercialRepositories.js'
+import {createSampleOrderRepositories} from '../adapters/memory/orderRepositories.js'
+import {createMemoryGanoBotRepositories} from '../adapters/memory/ganobotRepositories.js'
+import {createMemoryWhatsAppRepositories,SampleWhatsAppAdapter} from '../adapters/memory/whatsappRepositories.js'
+import {CommercialApplication} from './commercial.js'
+import {OrderApplication} from './orders.js'
+import {GanoBotApplication} from './ganobot.js'
+import {WhatsAppApplication} from './whatsapp.js'
+import type {WhatsAppConnection} from '../domain/index.js'
 const connection:WhatsAppConnection={id:'wa-fl',tenantId:'tenant-floes',phoneNumberId:'pn-fl',status:'ACTIVE',createdAt:'2026-09-27T12:00:00.000Z',updatedAt:'2026-09-27T12:00:00.000Z'}
 function setup(){
  const commercialRepos=createSampleRepositories();const commercial=new CommercialApplication(commercialRepos,()=> '2026-09-27T12:00:00.000Z')

@@ -1,4 +1,4 @@
-import type { CommercialActivity, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, HumanEscalation, Opportunity, Tenant } from '../../domain'
+import type { CommercialActivity, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, HumanEscalation, Opportunity, Tenant } from '../../domain/index.js'
 
 const at = (day: number, hour = 14) => `2026-09-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00.000Z`
 const createdAt = at(1, 9)

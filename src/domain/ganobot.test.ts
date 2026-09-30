@@ -1,2 +1,2 @@
-import { describe,expect,it } from 'vitest';import { classifyGanoBotIntent,ganobotToolPolicy } from './ganobot'
+import { describe,expect,it } from 'vitest';import { classifyGanoBotIntent,ganobotToolPolicy } from './ganobot.js'
 describe('GanoBot domain',()=>{it('classifies purchase',()=>expect(classifyGanoBotIntent('Quiero comprar un scrub')).toBe('PURCHASE_INTENT'));it('classifies human request',()=>expect(classifyGanoBotIntent('quiero un asesor humano')).toBe('HUMAN_REQUEST'));it('requires human for escalation',()=>expect(ganobotToolPolicy('REQUEST_HUMAN')).toBe('HUMAN_REQUIRED'));it('allows deterministic commerce reads',()=>expect(ganobotToolPolicy('GET_PRODUCT')).toBe('ALLOWED'))})

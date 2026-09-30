@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest'
-import {calculateSettlementTotal,issueSettlement,paySettlement,publicationUnits,type ContentItem,type Settlement} from './index'
+import {calculateSettlementTotal,issueSettlement,paySettlement,publicationUnits,type ContentItem,type Settlement} from './index.js'
 const s:Settlement={id:'s',tenantId:'t',currency:'COP',status:'DRAFT',periodStart:'2026-09-01',periodEnd:'2026-09-30',createdAt:'2026-09-30',lines:[{id:'l',type:'MANAGED_ORDER_FEE',description:'fee',amountCents:500}]}
 describe('H5-H7 domain',()=>{
  it('totals settlement lines',()=>expect(calculateSettlementTotal(s.lines)).toBe(500))

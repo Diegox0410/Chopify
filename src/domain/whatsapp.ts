@@ -1,4 +1,4 @@
-import type { EntityId, TenantScoped } from './shared'
+import type { EntityId, TenantScoped } from './shared.js'
 
 export type WhatsAppConnectionStatus = 'DISCONNECTED' | 'CONFIGURED' | 'ACTIVE' | 'ERROR'
 export type WhatsAppMessageDirection = 'INBOUND' | 'OUTBOUND'

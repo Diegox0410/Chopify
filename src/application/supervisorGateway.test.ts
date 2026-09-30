@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest'
-import { createSampleRepositories } from '../adapters/memory/commercialRepositories'
-import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories'
-import { SupervisorApplication } from './supervisor'
+import { createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import { SupervisorApplication } from './supervisor.js'
 
 describe('H5 Supervisor gateway contract',()=>{
  it('returns an OPEN tenant-scoped escalation for GanoBot',async()=>{

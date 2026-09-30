@@ -1,4 +1,4 @@
-import type { CommerceProduct, InventoryPosition, InventoryReservationItem } from '../domain'
+import type { CommerceProduct, InventoryPosition, InventoryReservationItem } from '../domain/index.js'
 
 export interface BusinessCommerceAdapter {
   searchProducts(tenantId: string, query: string): Promise<readonly CommerceProduct[]>

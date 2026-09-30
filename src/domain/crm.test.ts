@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CommercialTask, Conversation, Opportunity } from './index'
-import { abandonOpportunity, assignHumanConversation, calculateConversionMetrics, cancelTask, closeConversation, completeTask, createCommercialNote, loseOpportunity, markOpportunityOrderCreated, projectAttention, projectPipeline, qualifyOpportunity, reopenConversation, reopenOpportunity, requireHumanConversation, startOpportunityCart, updateOpportunityEstimatedValue, winOpportunity } from './index'
+import type { CommercialTask, Conversation, Opportunity } from './index.js'
+import { abandonOpportunity, assignHumanConversation, calculateConversionMetrics, cancelTask, closeConversation, completeTask, createCommercialNote, loseOpportunity, markOpportunityOrderCreated, projectAttention, projectPipeline, qualifyOpportunity, reopenConversation, reopenOpportunity, requireHumanConversation, startOpportunityCart, updateOpportunityEstimatedValue, winOpportunity } from './index.js'
 
 const now = '2026-09-27T10:00:00.000Z'
 const conversation: Conversation = { id: 'conv', tenantId: 'tenant-a', customerId: 'customer-a', channel: 'WEB', status: 'OPEN', assignedMode: 'AUTOMATION', startedAt: now, lastActivityAt: now, createdAt: now, updatedAt: now }

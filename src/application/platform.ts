@@ -1,12 +1,12 @@
-import { sampleTenants } from '../data/sample'
+import { sampleTenants } from '../data/sample/index.js'
 import {
   sampleCampaigns,
   sampleContent,
   sampleProfiles,
   sampleSettlements,
   sampleUsers,
-} from '../data/sample/platform'
-import { sampleOrders } from '../data/sample/orders'
+} from '../data/sample/platform.js'
+import { sampleOrders } from '../data/sample/orders.js'
 import {
   calculateManagementFee,
   calculateManagedRevenue,
@@ -14,7 +14,7 @@ import {
   type ContentItem,
   type Order,
   type Settlement,
-} from '../domain'
+} from '../domain/index.js'
 
 const tenantIds = [
   'tenant-mg',

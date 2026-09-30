@@ -1,4 +1,4 @@
-import type { ISODateTime, TenantScoped } from './shared'
+import type { ISODateTime, TenantScoped } from './shared.js'
 
 export type IdempotentOperation = 'CREATE_ORDER' | 'SUBMIT_PAYMENT_PROOF' | 'APPROVE_PAYMENT' | 'REJECT_PAYMENT' | 'CANCEL_ORDER'
 export type IdempotencyStatus = 'STARTED' | 'COMPLETED'

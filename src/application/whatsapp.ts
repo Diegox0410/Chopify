@@ -1,8 +1,8 @@
-import type { CustomerIdentity, MetaWebhookPayload, WhatsAppConnection, WhatsAppInboundMessage, WhatsAppMessage, WhatsAppProcessResult } from '../domain'
-import { extractInboundTextMessages, normalizeWhatsAppId } from '../domain'
-import type { CommercialRepositories } from './commercial'
-import type { CommercialApplication } from './commercial'
-import type { GanoBotApplication } from './ganobot'
+import type { CustomerIdentity, MetaWebhookPayload, WhatsAppConnection, WhatsAppInboundMessage, WhatsAppMessage, WhatsAppProcessResult } from '../domain/index.js'
+import { extractInboundTextMessages, normalizeWhatsAppId } from '../domain/index.js'
+import type { CommercialRepositories } from './commercial.js'
+import type { CommercialApplication } from './commercial.js'
+import type { GanoBotApplication } from './ganobot.js'
 
 export interface WhatsAppConnectionRepository {
   list(scope:string):Promise<readonly WhatsAppConnection[]>

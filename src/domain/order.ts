@@ -1,5 +1,5 @@
-import type { CommercialAgreementSnapshot } from './commercial'
-import type { CurrencyCode, EntityId, ISODateTime, TenantScoped, Timestamped } from './shared'
+import type { CommercialAgreementSnapshot } from './commercial.js'
+import type { CurrencyCode, EntityId, ISODateTime, TenantScoped, Timestamped } from './shared.js'
 
 export type OrderStatus = 'CREATED' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED'
 export type PaymentStatus = 'UNPAID' | 'PROOF_RECEIVED' | 'UNDER_REVIEW' | 'PAID' | 'REJECTED' | 'REFUNDED'

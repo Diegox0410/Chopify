@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { createSign } from 'node:crypto'
-import { CommerceStateConflictError, type CommerceRuntimeState, type CommerceStateRecord, type CommerceStateStore } from '../application/commerceRuntime'
+import { CommerceStateConflictError, type CommerceRuntimeState, type CommerceStateRecord, type CommerceStateStore } from '../application/commerceRuntime.js'
 interface ServiceAccount {project_id:string;client_email:string;private_key:string}
 const JSON_HEADERS={'Content-Type':'application/json'}
 const must=(env:NodeJS.ProcessEnv,key:string)=>{const value=env[key]?.trim();if(!value)throw new Error(`Missing server environment variable: ${key}`);return value}

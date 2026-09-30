@@ -1,12 +1,12 @@
-import type { SampleDatabase } from '../adapters/memory/commercialRepositories'
-import { createSampleDatabase,createSampleRepositories } from '../adapters/memory/commercialRepositories'
-import type { SampleOrderDatabase } from '../adapters/memory/orderRepositories'
-import { createSampleOrderDatabase,createSampleOrderRepositories } from '../adapters/memory/orderRepositories'
-import { CommercialApplication } from './commercial'
-import { OrderApplication } from './orders'
-import { SupervisorApplication } from './supervisor'
-import { CustomerIdentityResolver } from './customerIdentityResolver'
-import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway'
+import type { SampleDatabase } from '../adapters/memory/commercialRepositories.js'
+import { createSampleDatabase,createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import type { SampleOrderDatabase } from '../adapters/memory/orderRepositories.js'
+import { createSampleOrderDatabase,createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import { CommercialApplication } from './commercial.js'
+import { OrderApplication } from './orders.js'
+import { SupervisorApplication } from './supervisor.js'
+import { CustomerIdentityResolver } from './customerIdentityResolver.js'
+import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway.js'
 
 export interface CommerceRuntimeState {schemaVersion:1;commercial:SampleDatabase;orders:SampleOrderDatabase}
 export interface CommerceStateRecord {state:CommerceRuntimeState;version:string|null}
@@ -40,7 +40,10 @@ function buildGateway(state:CommerceRuntimeState){
  const identityResolver=new CustomerIdentityResolver(commercialRepositories)
  return new CommerceGateway(commercial,orders,orderRepositories.commerce,supervisor,identityResolver)
 }
-const MUTATIONS=new Set<CommerceGatewayRequest['operation']>(['createOrUpdateCustomer','createOpportunity','createOrderDraft','attachPaymentProof','requestHumanEscalation','resolveCustomerIdentity'])
+const MUTATIONS=new Set<CommerceGatewayRequest['operation']>([
+ 'createOrUpdateCustomer','createOpportunity','createOrderDraft','attachPaymentProof','requestHumanEscalation','resolveCustomerIdentity',
+ 'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
+])
 export class PersistentCommerceRuntime{
  constructor(private readonly store:CommerceStateStore,private readonly maxAttempts=4){}
  async execute(request:CommerceGatewayRequest):Promise<unknown>{

@@ -6,11 +6,11 @@ import {
 
 import {
   createSampleRepositories,
-} from '../adapters/memory/commercialRepositories'
+} from '../adapters/memory/commercialRepositories.js'
 
 import {
   CustomerIdentityResolver,
-} from './customerIdentityResolver'
+} from './customerIdentityResolver.js'
 
 const now = () =>
   '2026-09-28T20:00:00.000Z'

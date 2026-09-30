@@ -1,1 +1,1 @@
-export { calculateConversionMetrics, projectAttention, projectPipeline } from '../domain'
+export { calculateConversionMetrics, projectAttention, projectPipeline } from '../domain/index.js'

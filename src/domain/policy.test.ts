@@ -1,5 +1,5 @@
 import { describe,expect,it } from 'vitest'
-import { evaluateAutomationAction,type AutomationPolicy } from './policy'
+import { evaluateAutomationAction,type AutomationPolicy } from './policy.js'
 const p:AutomationPolicy={tenantId:'t',autonomyLevel:2,allowMessageRequests:true,allowFollowUps:true,allowRepurchase:true,allowEscalations:true}
 describe('H4 policy',()=>{
  it('allows message request at L2',()=>expect(evaluateAutomationAction(p,'SEND_MESSAGE_REQUEST')).toBe('ALLOWED'))

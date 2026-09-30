@@ -6,7 +6,7 @@ import type {
   AutomationExecution,
   OutboxEvent,
   OutboxPayload,
-} from '../domain'
+} from '../domain/index.js'
 
 import {
   completeOutbox,
@@ -14,7 +14,7 @@ import {
   failOutbox,
   matchesAutomation,
   startOutbox,
-} from '../domain'
+} from '../domain/index.js'
 
 import type {
   AutomationDefinitionRepository,
@@ -22,7 +22,7 @@ import type {
   AutomationExecutionRepository,
   AutomationPolicyRepository,
   OutboxRepository,
-} from '../repositories/automationContracts'
+} from '../repositories/automationContracts.js'
 
 export interface AutomationExecutor {
   execute(event: OutboxEvent): Promise<void>

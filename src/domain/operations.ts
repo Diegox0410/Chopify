@@ -1,4 +1,4 @@
-import type { EntityId, ISODateTime, TenantScoped } from './shared'
+import type { EntityId, ISODateTime, TenantScoped } from './shared.js'
 
 export type EscalationPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 export type EscalationReason = 'CUSTOMER_REQUEST' | 'COMPLAINT' | 'PAYMENT_ISSUE' | 'PRICING_EXCEPTION' | 'STOCK_CONFLICT' | 'RETURN_REQUEST' | 'DELIVERY_ISSUE' | 'UNKNOWN_PRODUCT' | 'SYSTEM_ERROR' | 'OTHER'

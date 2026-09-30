@@ -1,8 +1,8 @@
-import type { AuditEvent, CommercialAgreement, IdempotencyRecord, IdempotentOperation, InventoryPosition, InventoryReservation, InventoryReservationItem, Order, Payment, PaymentProof } from '../../domain'
-import { commitPosition, releasePosition, reservePosition } from '../../domain'
-import type { AgreementRepository, AuditRepository, IdempotencyRepository, InventoryRepository, InventoryReservationRepository, OrderRepository, PaymentProofRepository, PaymentRepository } from '../../repositories/contracts'
-import type { BusinessCommerceAdapter } from '../../application/commercePort'
-import { sampleAgreements, sampleAuditEvents, sampleIdempotency, sampleInventory, sampleOrders, samplePayments, sampleProducts, sampleProofs, sampleReservations } from '../../data/sample/orders'
+import type { AuditEvent, CommercialAgreement, IdempotencyRecord, IdempotentOperation, InventoryPosition, InventoryReservation, InventoryReservationItem, Order, Payment, PaymentProof } from '../../domain/index.js'
+import { commitPosition, releasePosition, reservePosition } from '../../domain/index.js'
+import type { AgreementRepository, AuditRepository, IdempotencyRepository, InventoryRepository, InventoryReservationRepository, OrderRepository, PaymentProofRepository, PaymentRepository } from '../../repositories/contracts.js'
+import type { BusinessCommerceAdapter } from '../../application/commercePort.js'
+import { sampleAgreements, sampleAuditEvents, sampleIdempotency, sampleInventory, sampleOrders, samplePayments, sampleProducts, sampleProofs, sampleReservations } from '../../data/sample/orders.js'
 
 export interface SampleOrderDatabase { orders: Order[]; payments: Payment[]; proofs: PaymentProof[]; reservations: InventoryReservation[]; idempotency: IdempotencyRecord[]; inventory: InventoryPosition[]; agreements: CommercialAgreement[]; audit: AuditEvent[]; publishedOrderIds: string[] }
 export const createSampleOrderDatabase = (): SampleOrderDatabase => ({

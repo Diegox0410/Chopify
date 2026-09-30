@@ -1,5 +1,5 @@
-import type { Customer, CustomerIdentity, CustomerIdentityChannel } from '../domain'
-import type { CustomerIdentityRepository, CustomerRepository, TenantRepository } from '../repositories/contracts'
+import type { Customer, CustomerIdentity, CustomerIdentityChannel } from '../domain/index.js'
+import type { CustomerIdentityRepository, CustomerRepository, TenantRepository } from '../repositories/contracts.js'
 
 export interface CustomerIdentityResolverRepositories {
   tenants: TenantRepository

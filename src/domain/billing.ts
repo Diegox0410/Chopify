@@ -1,4 +1,4 @@
-import type { CurrencyCode, EntityId, ISODateTime, TenantScoped } from './shared'
+import type { CurrencyCode, EntityId, ISODateTime, TenantScoped } from './shared.js'
 export type SettlementLineType='MANAGED_ORDER_FEE'|'PUBLICATION_FEE'|'ANNUAL_CONTINUITY'|'ADJUSTMENT'
 export type SettlementStatus='DRAFT'|'ISSUED'|'PAID'|'VOID'
 export interface SettlementLine { id:EntityId; type:SettlementLineType; description:string; amountCents:number; sourceEntityId?:EntityId }

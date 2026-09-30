@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createSampleRepositories } from '../adapters/memory/commercialRepositories'
-import type { Customer } from '../domain'
-import { CommercialApplication } from './commercial'
+import { createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import type { Customer } from '../domain/index.js'
+import { CommercialApplication } from './commercial.js'
 
 const fixedNow = '2026-09-27T12:00:00.000Z'
 const setup = () => { const repositories = createSampleRepositories(); return { repositories, app: new CommercialApplication(repositories, () => fixedNow) } }

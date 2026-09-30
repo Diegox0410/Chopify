@@ -13,8 +13,8 @@ import {
   rejectProof,
   startPaymentReview,
   startPreparation,
-} from './index'
-import type { Order, Payment, PaymentProof } from './index'
+} from './index.js'
+import type { Order, Payment, PaymentProof } from './index.js'
 
 const at = '2026-09-27T12:00:00.000Z'
 

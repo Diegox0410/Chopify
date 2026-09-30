@@ -1,4 +1,4 @@
-import type { AuditEvent, CommerceProduct, CommercialAgreement, IdempotencyRecord, InventoryPosition, InventoryReservation, Order, OrderItemSnapshot, Payment, PaymentProof } from '../../domain'
+import type { AuditEvent, CommerceProduct, CommercialAgreement, IdempotencyRecord, InventoryPosition, InventoryReservation, Order, OrderItemSnapshot, Payment, PaymentProof } from '../../domain/index.js'
 
 const at = (day: number, hour = 12) => `2026-09-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00.000Z`
 export const sampleProducts: readonly CommerceProduct[] = [

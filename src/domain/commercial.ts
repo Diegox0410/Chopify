@@ -1,5 +1,5 @@
-import type { EntityId, ISODateTime, TenantScoped } from './shared'
-import type { Attribution, Order } from './order'
+import type { EntityId, ISODateTime, TenantScoped } from './shared.js'
+import type { Attribution, Order } from './order.js'
 
 export interface CommercialAgreement extends TenantScoped {
   id: EntityId; effectiveFrom: ISODateTime; effectiveTo?: ISODateTime; managedOrderRateBps: number; publicationFeeCents: number; annualContinuityFeeCents: number; rulesVersion: string; createdAt: ISODateTime

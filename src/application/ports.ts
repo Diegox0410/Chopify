@@ -1,4 +1,4 @@
-import type { Customer, HumanEscalation, Opportunity, OpportunityLossReason, Order, PaymentProof } from '../domain'
+import type { Customer, HumanEscalation, Opportunity, OpportunityLossReason, Order, PaymentProof } from '../domain/index.js'
 
 export interface ProductSummary { id: string; name: string; priceCents: number; currency: string }
 export interface ProductDetail extends ProductSummary { description?: string }

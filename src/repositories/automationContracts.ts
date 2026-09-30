@@ -1,4 +1,4 @@
-import type { AutomationDefinition, AutomationEvaluation, AutomationExecution, AutomationPolicy, OutboxEvent, OutboxStatus } from '../domain'
+import type { AutomationDefinition, AutomationEvaluation, AutomationExecution, AutomationPolicy, OutboxEvent, OutboxStatus } from '../domain/index.js'
 export interface AutomationDefinitionRepository { listByTenant(tenantId:string):Promise<readonly AutomationDefinition[]>; getById(tenantId:string,id:string):Promise<AutomationDefinition|null>; save(tenantId:string,item:AutomationDefinition):Promise<void> }
 export interface AutomationPolicyRepository { get(tenantId:string):Promise<AutomationPolicy|null>; save(tenantId:string,item:AutomationPolicy):Promise<void> }
 export interface AutomationEvaluationRepository { listByTenant(tenantId:string):Promise<readonly AutomationEvaluation[]>; append(tenantId:string,item:AutomationEvaluation):Promise<void> }

@@ -1,5 +1,5 @@
-import type { WhatsAppConnection,WhatsAppMessage } from '../../domain'
-import type { WhatsAppChannelAdapter,WhatsAppConnectionRepository,WhatsAppMessageRepository } from '../../application/whatsapp'
+import type { WhatsAppConnection,WhatsAppMessage } from '../../domain/index.js'
+import type { WhatsAppChannelAdapter,WhatsAppConnectionRepository,WhatsAppMessageRepository } from '../../application/whatsapp.js'
 
 export function createMemoryWhatsAppRepositories(seed:readonly WhatsAppConnection[]=[]){
   const connections:WhatsAppConnection[]=seed.map(x=>({...x}))

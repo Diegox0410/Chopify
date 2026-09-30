@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest'
-import { createSampleRepositories } from '../adapters/memory/commercialRepositories'
-import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories'
-import { SupervisorApplication } from './supervisor'
+import { createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import { SupervisorApplication } from './supervisor.js'
 
 const setup=()=>{const commercial=createSampleRepositories();const orders=createSampleOrderRepositories();return new SupervisorApplication({...commercial,orders:orders.orders,proofs:orders.proofs},()=> '2026-09-28T15:00:00.000Z')}
 describe('H5 Supervisor and human escalation',()=>{

@@ -1,11 +1,11 @@
 import { beforeEach,describe,expect,it } from 'vitest'
-import { createSampleRepositories } from '../adapters/memory/commercialRepositories'
-import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories'
-import { CommercialApplication } from './commercial'
-import { OrderApplication } from './orders'
-import { CommerceGateway } from './commerceGateway'
-import { SupervisorApplication } from './supervisor'
-import { CustomerIdentityResolver } from './customerIdentityResolver'
+import { createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import { CommercialApplication } from './commercial.js'
+import { OrderApplication } from './orders.js'
+import { CommerceGateway } from './commerceGateway.js'
+import { SupervisorApplication } from './supervisor.js'
+import { CustomerIdentityResolver } from './customerIdentityResolver.js'
 let gateway:CommerceGateway
 beforeEach(()=>{
  const c=createSampleRepositories();const o=createSampleOrderRepositories();const now=()=> '2026-09-28T18:00:00.000Z'

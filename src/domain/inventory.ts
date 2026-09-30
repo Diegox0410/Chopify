@@ -1,4 +1,4 @@
-import type { EntityId, ISODateTime, TenantScoped } from './shared'
+import type { EntityId, ISODateTime, TenantScoped } from './shared.js'
 
 export type FulfillmentMode = 'STOCK' | 'MADE_TO_ORDER' | 'HYBRID' | 'DIGITAL' | 'SERVICE'
 export interface InventoryPosition extends TenantScoped { productId: EntityId; variantId?: EntityId; onHand: number; reserved: number }

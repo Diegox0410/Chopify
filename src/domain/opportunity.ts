@@ -1,4 +1,4 @@
-import type { CurrencyCode, EntityId, TenantScoped, Timestamped } from './shared'
+import type { CurrencyCode, EntityId, TenantScoped, Timestamped } from './shared.js'
 
 export type OpportunityStatus = 'OPEN' | 'QUALIFIED' | 'CART_STARTED' | 'ORDER_CREATED' | 'WON' | 'LOST' | 'ABANDONED'
 export type OpportunityIntent = 'PRODUCT_DISCOVERY' | 'PRODUCT_QUESTION' | 'PRICE_CHECK' | 'AVAILABILITY_CHECK' | 'PURCHASE_INTENT' | 'ORDER_STATUS' | 'PAYMENT_HELP' | 'DELIVERY_HELP' | 'COMPLAINT' | 'RETURN_REQUEST' | 'POST_SALE' | 'REPURCHASE' | 'GENERAL_QUESTION' | 'HUMAN_REQUEST' | 'UNKNOWN'

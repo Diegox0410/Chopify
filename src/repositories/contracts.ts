@@ -1,4 +1,4 @@
-import type { AuditEvent, CommercialActivity, CommercialAgreement, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, CustomerStatus, HumanEscalation, IdempotencyRecord, IdempotentOperation, InventoryPosition, InventoryReservation, ManagedSale, Opportunity, OpportunityStatus, Order, Payment, PaymentProof, Settlement, Tenant } from '../domain'
+import type { AuditEvent, CommercialActivity, CommercialAgreement, CommercialNote, CommercialTask, Conversation, Customer, CustomerIdentity, CustomerStatus, HumanEscalation, IdempotencyRecord, IdempotentOperation, InventoryPosition, InventoryReservation, ManagedSale, Opportunity, OpportunityStatus, Order, Payment, PaymentProof, Settlement, Tenant } from '../domain/index.js'
 
 export interface TenantRepository { list(): Promise<readonly Tenant[]>; getById(id: string): Promise<Tenant | null> }
 export interface CustomerRepository { listByTenant(tenantId: string, filters?: { search?: string; status?: CustomerStatus }): Promise<readonly Customer[]>; getById(tenantId: string, id: string): Promise<Customer | null>; save(tenantId: string, customer: Customer): Promise<void> }

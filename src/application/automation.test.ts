@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest'
-import { createSampleAutomationRepositories } from '../adapters/memory/automationRepositories'
-import type { AutomationEvent } from '../domain'
-import { AutomationApplication } from './automation'
+import { createSampleAutomationRepositories } from '../adapters/memory/automationRepositories.js'
+import type { AutomationEvent } from '../domain/index.js'
+import { AutomationApplication } from './automation.js'
 const owner={actorId:'platform-owner',role:'PLATFORM_OWNER' as const}
 const floesEvent=(id='evt-1'):AutomationEvent=>({id,tenantId:'tenant-floes',type:'PAYMENT_CONFIRMED',occurredAt:'2026-09-27T18:00:00.000Z',entityType:'ORDER',entityId:'order-fl-1',orderId:'order-fl-1',customerId:'cus-fl-1',conversationId:'conv-fl-1',data:{channel:'WHATSAPP'}})
 describe('H4 automation application',()=>{

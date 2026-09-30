@@ -1,7 +1,7 @@
-import type { CommercialRepositories } from './commercial'
-import type { OrderRepository, PaymentProofRepository } from '../repositories/contracts'
-import type { HumanEscalation } from '../domain'
-import { classifySupervisorCase, supervisorCounts, type SupervisorSnapshot } from '../domain/supervisor'
+import type { CommercialRepositories } from './commercial.js'
+import type { OrderRepository, PaymentProofRepository } from '../repositories/contracts.js'
+import type { HumanEscalation } from '../domain/index.js'
+import { classifySupervisorCase, supervisorCounts, type SupervisorSnapshot } from '../domain/supervisor.js'
 
 export interface SupervisorRepositories extends CommercialRepositories { orders:OrderRepository; proofs:PaymentProofRepository }
 

@@ -1,4 +1,4 @@
-import type { OpportunityStatus } from '../../domain'
+import type { OpportunityStatus } from '../../domain/index.js'
 
 export const money = (cents: number, currency = 'COP') =>
   new Intl.NumberFormat('es-CO', {

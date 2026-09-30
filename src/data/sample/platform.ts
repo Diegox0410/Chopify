@@ -1,4 +1,4 @@
-import type { ContentCampaign,ContentItem,PlatformUser,Settlement,TenantProfile } from '../../domain'
+import type { ContentCampaign,ContentItem,PlatformUser,Settlement,TenantProfile } from '../../domain/index.js'
 const at=(d:number)=>`2026-09-${String(d).padStart(2,'0')}T14:00:00.000Z`
 export const sampleProfiles:readonly TenantProfile[]=[
  {tenantId:'tenant-mg',ownerName:'Owner MG',ownerEmail:'mg@example.test',primaryChannel:'WHATSAPP',timezone:'America/Guayaquil'},

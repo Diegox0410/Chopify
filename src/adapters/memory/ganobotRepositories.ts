@@ -1,3 +1,3 @@
-import type { GanoBotSession, GanoBotToolTrace } from '../../domain'
-import type { GanoBotSessionRepository, GanoBotTraceRepository } from '../../application/ganobot'
+import type { GanoBotSession, GanoBotToolTrace } from '../../domain/index.js'
+import type { GanoBotSessionRepository, GanoBotTraceRepository } from '../../application/ganobot.js'
 export function createMemoryGanoBotRepositories(){const sessions:GanoBotSession[]=[];const traces:GanoBotToolTrace[]=[];const sessionRepo:GanoBotSessionRepository={async get(t,c){return sessions.find(x=>x.tenantId===t&&x.conversationId===c)??null},async save(item){const i=sessions.findIndex(x=>x.id===item.id);if(i>=0)sessions[i]=item;else sessions.push(item)},async list(scope){return scope==='ALL'?[...sessions]:sessions.filter(x=>x.tenantId===scope)}};const traceRepo:GanoBotTraceRepository={async append(item){traces.push(item)},async list(scope){return scope==='ALL'?[...traces]:traces.filter(x=>x.tenantId===scope)}};return{sessions:sessionRepo,traces:traceRepo}}

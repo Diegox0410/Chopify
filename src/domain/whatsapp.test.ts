@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest'
-import {extractInboundTextMessages,normalizeWhatsAppId,verifyWebhookChallenge} from './whatsapp'
+import {extractInboundTextMessages,normalizeWhatsAppId,verifyWebhookChallenge} from './whatsapp.js'
 describe('WhatsApp domain',()=>{
  it('normalizes ids',()=>expect(normalizeWhatsAppId('+593 99-123-4567')).toBe('593991234567'))
  it('verifies webhook challenge',()=>{expect(verifyWebhookChallenge('subscribe','secret','123','secret')).toBe('123');expect(verifyWebhookChallenge('subscribe','bad','123','secret')).toBeNull()})

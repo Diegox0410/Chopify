@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createSampleRepositories } from '../adapters/memory/commercialRepositories'
-import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories'
-import type { ActorContext } from '../domain'
-import { CommercialApplication } from './commercial'
-import { OrderApplication } from './orders'
+import { createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import type { ActorContext } from '../domain/index.js'
+import { CommercialApplication } from './commercial.js'
+import { OrderApplication } from './orders.js'
 
 let now = '2026-09-27T12:00:00.000Z'
 const clock = () => now

@@ -1,4 +1,4 @@
-import type { EntityId, TenantScoped, Timestamped } from './shared'
+import type { EntityId, TenantScoped, Timestamped } from './shared.js'
 
 export type Channel = 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'WEB' | 'OTHER'
 export type ConversationStatus = 'OPEN' | 'AUTOMATED' | 'HUMAN_REQUIRED' | 'CLOSED'

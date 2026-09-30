@@ -4,13 +4,13 @@ import type {
   Customer,
   Order,
   PaymentProof,
-} from '../domain'
+} from '../domain/index.js'
 
-import type { CommercialApplication } from './commercial'
-import type { OrderApplication } from './orders'
-import type { BusinessCommerceAdapter } from './commercePort'
-import type { SupervisorApplication } from './supervisor'
-import type { CustomerIdentityResolver } from './customerIdentityResolver'
+import type { CommercialApplication } from './commercial.js'
+import type { OrderApplication } from './orders.js'
+import type { BusinessCommerceAdapter } from './commercePort.js'
+import type { SupervisorApplication } from './supervisor.js'
+import type { CustomerIdentityResolver } from './customerIdentityResolver.js'
 
 export type CommerceGatewayOperation =
   | 'searchProducts'
@@ -23,6 +23,12 @@ export type CommerceGatewayOperation =
   | 'getOrderStatus'
   | 'requestHumanEscalation'
   | 'resolveCustomerIdentity'
+  | 'approvePayment'
+  | 'rejectPaymentProof'
+  | 'startPreparation'
+  | 'markReady'
+  | 'dispatchOrder'
+  | 'markDelivered'
 
 export interface CommerceGatewayRequest {
   operation: CommerceGatewayOperation
@@ -41,6 +47,7 @@ const product=(item:CommerceProduct)=>({
 })
 const customer=(item:Customer)=>({customerId:item.id,name:item.name,phone:item.phone,email:item.email})
 const actor=(tenantId:string):ActorContext=>({actorId:'ganobot-commerce',role:'AUTOMATION',tenantId})
+const humanActor=(tenantId:string):ActorContext=>({actorId:'chopify-operations',role:'TENANT_OWNER',tenantId})
 const requiredString=(value:unknown,label:string)=>{
  if(typeof value!=='string'||!value.trim())throw new Error(`${label} is required`)
  return value.trim()
@@ -148,7 +155,7 @@ export class CommerceGateway {
    case 'attachPaymentProof':{
     const orderId=requiredString(input.orderId,'orderId')
     const proof:PaymentProof=await this.orders.submitPaymentProof({tenantId,orderId,reference:optionalString(input.externalReference),assetReference:optionalString(input.proofUrl),idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??orderId}:attachPaymentProof`,actor:actor(tenantId)})
-    return{proofId:proof.id,orderId:proof.orderId,status:'pending_review'}
+    return{proofId:proof.id,paymentId:proof.paymentId,orderId:proof.orderId,status:'pending_review'}
    }
    case 'getOrderStatus':{
     const order=await this.orders.getOrder(tenantId,requiredString(input.orderId,'orderId'))
@@ -163,6 +170,28 @@ export class CommerceGateway {
     if(rawPriority&&!priority)throw new Error('Invalid escalation priority')
     const escalation=await this.supervisor.escalate({tenantId,conversationId,reason:reason as Reason,priority,contextSummary:optionalString(input.contextSummary),orderId:optionalString(input.orderId)})
     return{escalationId:escalation.id,conversationId:escalation.conversationId,status:escalation.status,reason:escalation.reason,priority:escalation.priority}
+   }
+   case 'approvePayment':{
+    const paymentId=requiredString(input.paymentId,'paymentId');const proofId=requiredString(input.proofId,'proofId')
+    const payment=await this.orders.approvePayment({tenantId,paymentId,proofId,idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??proofId}:approvePayment`,actor:humanActor(tenantId)})
+    return{paymentId:payment.id,orderId:payment.orderId,status:'approved'}
+   }
+   case 'rejectPaymentProof':{
+    const paymentId=requiredString(input.paymentId,'paymentId');const proofId=requiredString(input.proofId,'proofId')
+    const proof=await this.orders.rejectPaymentProof({tenantId,paymentId,proofId,reason:requiredString(input.reason,'reason'),idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??proofId}:rejectPaymentProof`,actor:humanActor(tenantId)})
+    return{paymentId:proof.paymentId,proofId:proof.id,orderId:proof.orderId,status:'rejected'}
+   }
+   case 'startPreparation':{
+    return status(await this.orders.startPreparation(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId)))
+   }
+   case 'markReady':{
+    return status(await this.orders.markReady(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId)))
+   }
+   case 'dispatchOrder':{
+    return status(await this.orders.dispatchOrder(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId),{courier:optionalString(input.courier),trackingCode:optionalString(input.trackingCode)}))
+   }
+   case 'markDelivered':{
+    return status(await this.orders.markDelivered(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId)))
    }
   }
  }

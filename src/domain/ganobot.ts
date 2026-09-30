@@ -1,4 +1,4 @@
-import type { ActorContext, Channel, CommerceProduct, OpportunityIntent } from './index'
+import type { ActorContext, Channel, CommerceProduct, OpportunityIntent } from './index.js'
 
 export type GanoBotToolName = 'SEARCH_PRODUCTS' | 'GET_PRODUCT' | 'GET_AVAILABILITY' | 'CREATE_OPPORTUNITY' | 'CREATE_ORDER' | 'GET_ORDER_STATUS' | 'REQUEST_HUMAN'
 export type GanoBotIntent = Extract<OpportunityIntent, 'PRODUCT_DISCOVERY' | 'PRODUCT_QUESTION' | 'PRICE_CHECK' | 'AVAILABILITY_CHECK' | 'PURCHASE_INTENT' | 'ORDER_STATUS' | 'HUMAN_REQUEST' | 'UNKNOWN'>

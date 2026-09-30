@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { belongsToTenant, filterByTenant, canTransitionOpportunity, transitionOpportunity, calculateManagedRevenue, calculateManagementFee, paymentStatusAfterProof, confirmPayment, evaluateCommercialAction, calculateSettlementTotal, hasPermission, isExecutableAutomation, resolveEscalation } from './index'
-import type { AutomationDefinition, CommercialPolicy, HumanEscalation, Opportunity, Payment } from './index'
+import { belongsToTenant, filterByTenant, canTransitionOpportunity, transitionOpportunity, calculateManagedRevenue, calculateManagementFee, paymentStatusAfterProof, confirmPayment, evaluateCommercialAction, calculateSettlementTotal, hasPermission, isExecutableAutomation, resolveEscalation } from './index.js'
+import type { AutomationDefinition, CommercialPolicy, HumanEscalation, Opportunity, Payment } from './index.js'
 
 const attribution = { managed: true, managedBy: 'AUTOMATION' as const, acquisitionSource: 'campaign', conversionChannel: 'WHATSAPP' }
 const order = { productSubtotalCents: 100_00, discountTotalCents: 10_00, shippingTotalCents: 20_00, taxTotalCents: 19_00, attributionSnapshot: attribution }

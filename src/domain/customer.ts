@@ -1,4 +1,4 @@
-import type { EntityId, TenantScoped, Timestamped } from './shared'
+import type { EntityId, TenantScoped, Timestamped } from './shared.js'
 
 export type CustomerStatus = 'LEAD' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
 

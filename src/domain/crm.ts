@@ -1,5 +1,5 @@
-import type { ActorType } from './operations'
-import type { EntityId, ISODateTime, TenantScoped } from './shared'
+import type { ActorType } from './operations.js'
+import type { EntityId, ISODateTime, TenantScoped } from './shared.js'
 
 export type CommercialActivityType =
   | 'CUSTOMER_CREATED' | 'CUSTOMER_UPDATED'
