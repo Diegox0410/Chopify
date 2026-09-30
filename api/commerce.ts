@@ -10,9 +10,11 @@ const operations=new Set<CommerceGatewayOperation>([
  'searchProducts','getProductDetails','checkAvailability','createOrUpdateCustomer','createOpportunity','createOrderDraft',
  'attachPaymentProof','getOrderStatus','requestHumanEscalation','resolveCustomerIdentity',
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
+ 'listProducts','syncFloesCatalog','updateProduct',
 ])
 const humanOperations=new Set<CommerceGatewayOperation>([
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
+ 'listProducts','syncFloesCatalog','updateProduct',
 ])
 const json=(res:CommerceResponse,status:number,body:unknown)=>{res.statusCode=status;res.setHeader('Content-Type','application/json');res.end(JSON.stringify(body))}
 const headerValue=(value:string|string[]|undefined)=>Array.isArray(value)?value[0]??'':value??''

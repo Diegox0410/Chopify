@@ -5,6 +5,8 @@ import type {
   Order,
   PaymentProof,
 } from '../domain/index.js'
+import { effectiveSalePrice } from '../domain/index.js'
+import { floesCatalog } from '../data/catalog/floes.js'
 
 import type { CommercialApplication } from './commercial.js'
 import type { OrderApplication } from './orders.js'
@@ -29,6 +31,9 @@ export type CommerceGatewayOperation =
   | 'markReady'
   | 'dispatchOrder'
   | 'markDelivered'
+  | 'listProducts'
+  | 'syncFloesCatalog'
+  | 'updateProduct'
 
 export interface CommerceGatewayRequest {
   operation: CommerceGatewayOperation
@@ -41,9 +46,12 @@ export interface CommerceGatewayRequest {
 
 const money=(cents:number,currency:string)=>({amount:cents/100,currency})
 const product=(item:CommerceProduct)=>({
- productId:item.id,name:item.name,description:undefined,price:money(item.priceCents,item.currency),
- available:item.fulfillmentMode==='MADE_TO_ORDER'||item.fulfillmentMode==='SERVICE'||item.available>0,
- imageUrl:item.imageUrl,metadata:{fulfillmentMode:item.fulfillmentMode,variantId:item.variantId,variantName:item.variantName},
+ productId:item.id,name:item.name,sku:item.sku,slug:item.slug,description:item.description,commercialSummary:item.commercialSummary,category:item.category,
+ price:item.salePriceCents===null?null:money(item.salePriceCents,item.currency),pricingStatus:item.pricingStatus,
+ available:item.fulfillmentMode==='MADE_TO_ORDER'||item.fulfillmentMode==='SERVICE'||item.variants.some((variant)=>(variant.stock??0)>0),
+ imageUrl:item.images[0]?.url,images:item.images,fulfillmentMode:item.fulfillmentMode,status:item.status,visibility:item.visibility,
+ variants:item.variants.filter((variant)=>variant.status==='ACTIVE'&&variant.visibility==='VISIBLE').map((variant)=>({variantId:variant.id,name:variant.color??variant.sku,color:variant.color,sku:variant.sku,price:effectiveSalePrice(item,variant)===null?null:money(effectiveSalePrice(item,variant)!,item.currency),pricingStatus:effectiveSalePrice(item,variant)===null?'PENDING':'READY',available:(variant.fulfillmentMode??item.fulfillmentMode)==='MADE_TO_ORDER'||(variant.fulfillmentMode??item.fulfillmentMode)==='SERVICE'||(variant.stock??0)>0,availableQuantity:variant.stock??undefined,images:variant.images,fulfillmentMode:variant.fulfillmentMode??item.fulfillmentMode})),
+ metadata:{fulfillmentMode:item.fulfillmentMode,pricingStatus:item.pricingStatus},
 })
 const customer=(item:Customer)=>({customerId:item.id,name:item.name,phone:item.phone,email:item.email})
 const actor=(tenantId:string):ActorContext=>({actorId:'ganobot-commerce',role:'AUTOMATION',tenantId})
@@ -86,6 +94,21 @@ export class CommerceGateway {
     const limit=typeof input.limit==='number'?Math.max(1,Math.min(20,Math.floor(input.limit))):10
     return (await this.commerce.searchProducts(tenantId,q)).slice(0,limit).map(product)
    }
+   case 'listProducts': return this.commerce.listProducts(tenantId)
+   case 'syncFloesCatalog':{
+    if(tenantId!=='tenant-floes')throw new Error('FLOES catalog import is restricted to tenant-floes')
+    const existing=await this.commerce.listProducts(tenantId);const ids=new Set(existing.map((item)=>item.id));const missing=floesCatalog.filter((item)=>!ids.has(item.id))
+    return missing.length?this.commerce.upsertProducts(tenantId,missing):existing
+   }
+   case 'updateProduct':{
+    const raw=input.product
+    if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('product is required')
+    const candidate={...(raw as CommerceProduct),tenantId}
+    const existing=(await this.commerce.listProducts(tenantId)).find((item)=>item.id===candidate.id)
+    if(!existing)throw new Error('Product not found in tenant')
+    await this.commerce.upsertProducts(tenantId,[candidate])
+    return candidate
+   }
    case 'getProductDetails':{
     const item=await this.commerce.getProduct(tenantId,requiredString(input.productId,'productId'))
     return item?product(item):undefined
@@ -95,9 +118,12 @@ export class CommerceGateway {
     const item=await this.commerce.getProduct(tenantId,productId,variantId)
     if(!item)return{productId,variantId,available:false,availableQuantity:0,reason:'not_found'}
     const quantity=typeof input.quantity==='number'?Math.max(1,Math.floor(input.quantity)):1
+    const variant=variantId?item.variants.find((entry)=>entry.id===variantId&&entry.status==='ACTIVE'&&entry.visibility==='VISIBLE'):undefined
+    if(variantId&&!variant)return{productId,variantId,available:false,reason:'variant_not_found'}
+    const mode=variant?.fulfillmentMode??item.fulfillmentMode
     const available=await this.commerce.getAvailability(tenantId,productId,variantId)
-    const canFulfill=item.fulfillmentMode==='MADE_TO_ORDER'||item.fulfillmentMode==='SERVICE'||available>=quantity
-    return{productId,variantId,available:canFulfill,availableQuantity:available,reason:canFulfill?undefined:'insufficient_stock'}
+    const canFulfill=mode==='MADE_TO_ORDER'||mode==='SERVICE'||available>=quantity
+    return{productId,variantId,available:canFulfill,...(mode==='STOCK'||mode==='HYBRID'?{availableQuantity:available}:{}),reason:canFulfill?(mode==='MADE_TO_ORDER'?'made_to_order':undefined):'insufficient_stock',fulfillmentMode:mode,pricingStatus:item.pricingStatus}
    }
    case 'createOrUpdateCustomer':{
     const customerId=optionalString(input.customerId)
@@ -130,7 +156,7 @@ export class CommerceGateway {
     const customerId=requiredString(input.customerId,'customerId')
     const ids=Array.isArray(input.productIds)?input.productIds.filter((v):v is string=>typeof v==='string'):[]
     let cents=0;let currency='USD'
-    if(ids[0]){const item=await this.commerce.getProduct(tenantId,ids[0]);if(item){cents=item.priceCents;currency=item.currency}}
+    if(ids[0]){const item=await this.commerce.getProduct(tenantId,ids[0]);if(item){cents=item.salePriceCents??0;currency=item.currency}}
     const opportunity=await this.commercial.createOpportunity({tenantId,customerId,intent:'PURCHASE_INTENT',estimatedValueCents:cents,currency,acquisitionSource:optionalString(input.source),conversionChannel:optionalString(input.source),assignedTo:'ganobot'})
     return{opportunityId:opportunity.id,customerId:opportunity.customerId,status:'new'}
    }

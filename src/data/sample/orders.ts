@@ -2,16 +2,14 @@ import type { AuditEvent, CommerceProduct, CommercialAgreement, IdempotencyRecor
 
 const at = (day: number, hour = 12) => `2026-09-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00.000Z`
 export const sampleProducts: readonly CommerceProduct[] = [
-  { id: 'mg-stock-1', tenantId: 'tenant-mg', name: 'Kit Esencial SAMPLE', priceCents: 100_00, currency: 'COP', available: 7, fulfillmentMode: 'STOCK' },
-  { id: 'mg-limited', tenantId: 'tenant-mg', name: 'Edición Limitada SAMPLE', priceCents: 180_00, currency: 'COP', available: 1, fulfillmentMode: 'STOCK' },
-  { id: 'dg-stock-1', tenantId: 'tenant-dgng', name: 'Pack Comercial SAMPLE', priceCents: 250_00, currency: 'COP', available: 8, fulfillmentMode: 'STOCK' },
-  { id: 'dg-service', tenantId: 'tenant-dgng', name: 'Servicio Digital SAMPLE', priceCents: 90_00, currency: 'COP', available: 0, fulfillmentMode: 'SERVICE' },
-  { id: 'fl-mto-1', tenantId: 'tenant-floes', name: 'Pieza a Pedido SAMPLE', priceCents: 320_00, currency: 'COP', available: 0, fulfillmentMode: 'MADE_TO_ORDER' },
-  { id: 'fl-hybrid-1', tenantId: 'tenant-floes', name: 'Colección Híbrida SAMPLE', priceCents: 210_00, currency: 'COP', available: 2, fulfillmentMode: 'HYBRID' },
+  { id: 'mg-stock-1', tenantId: 'tenant-mg', sku: 'MG-SAMPLE-1', slug: 'kit-esencial-sample', name: 'Kit Esencial SAMPLE', description: 'Fixture de prueba MG.', commercialSummary: 'Fixture de prueba MG.', category: 'SAMPLE', status: 'ACTIVE', visibility: 'VISIBLE', pricingStatus: 'READY', costCents: null, percentage: null, percentageType: null, salePriceCents: 100_00, currency: 'COP', fulfillmentMode: 'STOCK', images: [], variants: [] },
+  { id: 'mg-limited', tenantId: 'tenant-mg', sku: 'MG-SAMPLE-2', slug: 'edicion-limitada-sample', name: 'Edición Limitada SAMPLE', description: 'Fixture de prueba MG.', commercialSummary: 'Fixture de prueba MG.', category: 'SAMPLE', status: 'ACTIVE', visibility: 'VISIBLE', pricingStatus: 'READY', costCents: null, percentage: null, percentageType: null, salePriceCents: 180_00, currency: 'COP', fulfillmentMode: 'STOCK', images: [], variants: [] },
+  { id: 'dg-stock-1', tenantId: 'tenant-dgng', sku: 'DG-SAMPLE-1', slug: 'pack-comercial-sample', name: 'Pack Comercial SAMPLE', description: 'Fixture de prueba DGNG.', commercialSummary: 'Fixture de prueba DGNG.', category: 'SAMPLE', status: 'ACTIVE', visibility: 'VISIBLE', pricingStatus: 'READY', costCents: null, percentage: null, percentageType: null, salePriceCents: 250_00, currency: 'COP', fulfillmentMode: 'STOCK', images: [], variants: [] },
+  { id: 'dg-service', tenantId: 'tenant-dgng', sku: 'DG-SAMPLE-2', slug: 'servicio-digital-sample', name: 'Servicio Digital SAMPLE', description: 'Fixture de prueba DGNG.', commercialSummary: 'Fixture de prueba DGNG.', category: 'SAMPLE', status: 'ACTIVE', visibility: 'VISIBLE', pricingStatus: 'READY', costCents: null, percentage: null, percentageType: null, salePriceCents: 90_00, currency: 'COP', fulfillmentMode: 'SERVICE', images: [], variants: [] },
 ]
 export const sampleInventory: readonly InventoryPosition[] = [
   { tenantId: 'tenant-mg', productId: 'mg-stock-1', onHand: 10, reserved: 3 }, { tenantId: 'tenant-mg', productId: 'mg-limited', onHand: 1, reserved: 0 },
-  { tenantId: 'tenant-dgng', productId: 'dg-stock-1', onHand: 12, reserved: 4 }, { tenantId: 'tenant-floes', productId: 'fl-hybrid-1', onHand: 2, reserved: 0 },
+  { tenantId: 'tenant-dgng', productId: 'dg-stock-1', onHand: 12, reserved: 4 },
 ]
 export const sampleAgreements: readonly CommercialAgreement[] = [
   { id: 'agreement-mg', tenantId: 'tenant-mg', effectiveFrom: at(1), managedOrderRateBps: 500, publicationFeeCents: 0, annualContinuityFeeCents: 0, rulesVersion: '2026.1', createdAt: at(1) },

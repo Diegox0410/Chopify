@@ -8,7 +8,7 @@ import { SupervisorApplication } from './supervisor.js'
 import { CustomerIdentityResolver } from './customerIdentityResolver.js'
 import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway.js'
 
-export interface CommerceRuntimeState {schemaVersion:1;commercial:SampleDatabase;orders:SampleOrderDatabase}
+export interface CommerceRuntimeState {schemaVersion:2;commercial:SampleDatabase;orders:SampleOrderDatabase}
 export interface CommerceStateRecord {state:CommerceRuntimeState;version:string|null}
 export interface CommerceStateStore {
  load(tenantId:string):Promise<CommerceStateRecord|null>
@@ -20,17 +20,27 @@ export function createTenantCommerceState(tenantId:string):CommerceRuntimeState{
  const commercial=createSampleDatabase();const orders=createSampleOrderDatabase();const tenant=commercial.tenants.find(i=>i.id===tenantId)
  if(!tenant)throw new Error('Unknown tenant')
  const tenantOrderIds=new Set(orders.orders.filter(i=>i.tenantId===tenantId).map(i=>i.id))
- return{schemaVersion:1,commercial:{
+ return{schemaVersion:2,commercial:{
   tenants:[structuredClone(tenant)],customers:byTenant(commercial.customers,tenantId),identities:byTenant(commercial.identities,tenantId),
   conversations:byTenant(commercial.conversations,tenantId),opportunities:byTenant(commercial.opportunities,tenantId),
   activities:byTenant(commercial.activities,tenantId),notes:byTenant(commercial.notes,tenantId),tasks:byTenant(commercial.tasks,tenantId),
   escalations:byTenant(commercial.escalations,tenantId),
  },orders:{
+  products:byTenant(orders.products,tenantId),
   orders:byTenant(orders.orders,tenantId),payments:byTenant(orders.payments,tenantId),proofs:byTenant(orders.proofs,tenantId),
   reservations:byTenant(orders.reservations,tenantId),idempotency:byTenant(orders.idempotency,tenantId),inventory:byTenant(orders.inventory,tenantId),
   agreements:byTenant(orders.agreements,tenantId),audit:byTenant(orders.audit,tenantId),
   publishedOrderIds:orders.publishedOrderIds.filter(id=>tenantOrderIds.has(id)),
  }}
+}
+export function migrateCommerceState(tenantId:string,state:unknown):CommerceRuntimeState{
+ if(!state||typeof state!=='object')throw new Error('Commerce state is invalid')
+ const legacy=state as {schemaVersion?:number;commercial?:SampleDatabase;orders?:Omit<SampleOrderDatabase,'products'>&{products?:SampleOrderDatabase['products']}}
+ if(legacy.schemaVersion!==1&&legacy.schemaVersion!==2)throw new Error(`Unsupported commerce state schema: ${String(legacy.schemaVersion)}`)
+ if(!legacy.commercial||!legacy.orders)throw new Error('Commerce state is incomplete')
+ const seeded=createTenantCommerceState(tenantId)
+ const products=legacy.orders.products?.filter((item)=>item.tenantId===tenantId)??seeded.orders.products
+ return{schemaVersion:2,commercial:legacy.commercial,orders:{...legacy.orders,products:products.map((item)=>structuredClone(item))}}
 }
 function buildGateway(state:CommerceRuntimeState){
  const commercialRepositories=createSampleRepositories(state.commercial);const orderRepositories=createSampleOrderRepositories(state.orders)
@@ -43,6 +53,7 @@ function buildGateway(state:CommerceRuntimeState){
 const MUTATIONS=new Set<CommerceGatewayRequest['operation']>([
  'createOrUpdateCustomer','createOpportunity','createOrderDraft','attachPaymentProof','requestHumanEscalation','resolveCustomerIdentity',
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
+ 'syncFloesCatalog','updateProduct',
 ])
 export class PersistentCommerceRuntime{
  constructor(private readonly store:CommerceStateStore,private readonly maxAttempts=4){}

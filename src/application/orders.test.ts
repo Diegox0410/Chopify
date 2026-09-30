@@ -100,12 +100,15 @@ describe('H3 application order creation and commercial snapshots', () => {
 
   it('does not create a reservation for MADE_TO_ORDER', async () => {
     const app = setup()
+    const product = await app.orderRepositories.commerce.getProduct('tenant-floes', 'floes-scrub-maria-jose')
+    if (!product) throw new Error('FLOES fixture missing')
+    await app.orderRepositories.commerce.upsertProducts('tenant-floes', [{ ...product, pricingStatus: 'READY', salePriceCents: 32_000 }])
     const customer = await app.commercial.createCustomer({ tenantId: 'tenant-floes', name: 'Cliente FLOES H3' })
     const opportunity = await app.commercial.createOpportunity({ tenantId: 'tenant-floes', customerId: customer.id, intent: 'PURCHASE_INTENT', estimatedValueCents: 32_000, currency: 'COP' })
     await app.commercial.qualifyOpportunity('tenant-floes', opportunity.id)
     await app.commercial.startOpportunityCart('tenant-floes', opportunity.id)
     await app.commercial.markOpportunityOrderCreated('tenant-floes', opportunity.id)
-    const order = await app.orders.createOrderFromOpportunity({ tenantId: 'tenant-floes', opportunityId: opportunity.id, items: [{ productId: 'fl-mto-1', quantity: 1 }], idempotencyKey: 'mto', actor: { actorId: 'owner-fl', role: 'TENANT_OWNER', tenantId: 'tenant-floes' } })
+    const order = await app.orders.createOrderFromOpportunity({ tenantId: 'tenant-floes', opportunityId: opportunity.id, items: [{ productId: product.id, quantity: 1 }], idempotencyKey: 'mto', actor: { actorId: 'owner-fl', role: 'TENANT_OWNER', tenantId: 'tenant-floes' } })
     expect((await app.orders.getOrderDetail('tenant-floes', order.id))?.reservation).toBeNull()
   })
 })
