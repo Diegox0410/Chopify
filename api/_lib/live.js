@@ -100,7 +100,7 @@ export async function listPendingOutbox(limit = 20) {
 }
 function outboundId(inboundId) { return `out_${hash(inboundId)}` }
 function inboundId(providerId) { return `in_${hash(providerId)}` }
-async function prepareReply(message) {
+export async function prepareReply(message) {
   const endpoint = process.env.GANOBOT_LIVE_URL
   if (!endpoint) return { text: '¡Hola! Gracias por escribir a FLOES. Hemos recibido tu mensaje y un asesor continuará tu atención.', mode: 'HUMAN_FALLBACK' }
   if (!endpoint.startsWith('https://')) throw new Error('GANOBOT_LIVE_URL must use HTTPS')
