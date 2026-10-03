@@ -13,9 +13,9 @@ export function TenantFilter() {
         onChange={(event) => setScope(event.target.value)}
       >
         <option value="ALL">Todos los negocios</option>
-        <option value="tenant-mg">MG</option>
-        <option value="tenant-dgng">DGNG</option>
         <option value="tenant-floes">FLOES</option>
+        <option value="tenant-mg">MG Salud y Belleza</option>
+        <option value="tenant-dgng">DGNG</option>
       </select>
     </label>
   )
@@ -30,7 +30,7 @@ export function StatusPill({ value }: { value: string }) {
 }
 
 export function SampleBadge() {
-  return <span className="sample-badge">SAMPLE MODE</span>
+  return <span className="sample-badge">DATOS REALES</span>
 }
 
 export function EmptyState({

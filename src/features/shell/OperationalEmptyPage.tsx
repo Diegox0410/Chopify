@@ -1,0 +1,2 @@
+import { EmptyState } from '../commercial/shared'
+export function OperationalEmptyPage({title}:{title:string}){return <div className="page"><div className="page-heading"><div><span className="eyebrow">Operación real · FLOES</span><h1>{title}</h1><p>Esta vista solo presenta datos persistidos del tenant tenant-floes.</p></div></div><EmptyState title={`Sin ${title.toLowerCase()} reales`} body="No existen registros persistidos para mostrar. Chopify no rellena producción con datos sample."/></div>}

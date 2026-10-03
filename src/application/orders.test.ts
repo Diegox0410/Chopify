@@ -98,6 +98,21 @@ describe('H3 application order creation and commercial snapshots', () => {
     await expect(app.orders.createOrderFromOpportunity({ tenantId: 'tenant-mg', opportunityId: opportunity.id, items: [{ productId: 'mg-limited', quantity: 2 }], idempotencyKey: 'insufficient', actor: tenantOwner })).rejects.toThrow('Insufficient STOCK inventory')
   })
 
+  it('keeps missing STOCK inventory distinct from an explicitly empty position', async () => {
+    const app = setup()
+    const source = await app.orderRepositories.commerce.getProduct('tenant-mg', 'mg-stock-1')
+    if (!source) throw new Error('Stock fixture missing')
+    const product = { ...source, id: 'mg-unconfigured', sku: 'MG-UNCONFIGURED', slug: 'mg-unconfigured' }
+    await app.orderRepositories.commerce.upsertProducts('tenant-mg', [product])
+    expect(await app.orderRepositories.commerce.getAvailability('tenant-mg', product.id)).toBeNull()
+    const unknown = await orderReadyOpportunity(app.commercial)
+    await expect(app.orders.createOrderFromOpportunity({ tenantId: 'tenant-mg', opportunityId: unknown.id, items: [{ productId: product.id, quantity: 1 }], idempotencyKey: 'unknown-stock', actor: tenantOwner })).rejects.toThrow('Inventory is not configured')
+    app.orderRepositories.db.inventory.push({ tenantId: 'tenant-mg', productId: product.id, onHand: 0, reserved: 0 })
+    expect(await app.orderRepositories.commerce.getAvailability('tenant-mg', product.id)).toBe(0)
+    const empty = await orderReadyOpportunity(app.commercial)
+    await expect(app.orders.createOrderFromOpportunity({ tenantId: 'tenant-mg', opportunityId: empty.id, items: [{ productId: product.id, quantity: 1 }], idempotencyKey: 'zero-stock', actor: tenantOwner })).rejects.toThrow('Insufficient STOCK inventory')
+  })
+
   it('does not create a reservation for MADE_TO_ORDER', async () => {
     const app = setup()
     const product = await app.orderRepositories.commerce.getProduct('tenant-floes', 'floes-scrub-maria-jose')
@@ -197,6 +212,15 @@ describe('H3 cancellation, expiration, fulfillment and dashboard', () => {
     await createStockOrder(app, 'dashboard-order', { shippingCents: 5_000, taxCents: 4_000 })
     const after = await app.orders.dashboard('tenant-mg')
     expect(after.managedRevenueBaseCents - before.managedRevenueBaseCents).toBe(10_000)
-    expect(after.managementFeesCents - before.managementFeesCents).toBe(500)
+    expect((after.managementFeesCents ?? 0) - (before.managementFeesCents ?? 0)).toBe(500)
+  })
+
+  it('does not fabricate a zero management fee when no agreement exists', async () => {
+    const app = setup()
+    app.orderRepositories.db.agreements.splice(0)
+    const order = await createStockOrder(app, 'missing-agreement')
+    expect(order.managedSnapshot.managedOrderRateBps).toBeNull()
+    expect(order.managedSnapshot.managementFeeCents).toBeNull()
+    await expect(app.orders.dashboard('tenant-mg')).resolves.toMatchObject({ managementFeesCents: null, managementFeesStatus: 'UNAVAILABLE_MISSING_AGREEMENT' })
   })
 })

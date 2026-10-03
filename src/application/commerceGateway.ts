@@ -34,6 +34,10 @@ export type CommerceGatewayOperation =
   | 'listProducts'
   | 'syncFloesCatalog'
   | 'updateProduct'
+  | 'ownerDashboard'
+  | 'listOrders'
+  | 'getOrderDetail'
+  | 'listPaymentReviews'
 
 export interface CommerceGatewayRequest {
   operation: CommerceGatewayOperation
@@ -48,9 +52,10 @@ const money=(cents:number,currency:string)=>({amount:cents/100,currency})
 const product=(item:CommerceProduct)=>({
  productId:item.id,name:item.name,sku:item.sku,slug:item.slug,description:item.description,commercialSummary:item.commercialSummary,category:item.category,
  price:item.salePriceCents===null?null:money(item.salePriceCents,item.currency),pricingStatus:item.pricingStatus,
- available:item.fulfillmentMode==='MADE_TO_ORDER'||item.fulfillmentMode==='SERVICE'||item.variants.some((variant)=>(variant.stock??0)>0),
+ available:item.fulfillmentMode==='MADE_TO_ORDER'||item.fulfillmentMode==='SERVICE'||item.fulfillmentMode==='DIGITAL'||item.fulfillmentMode==='HYBRID'||item.variants.some((variant)=>variant.stock!==null&&variant.stock>0),
+ availabilityStatus:item.fulfillmentMode==='STOCK'&&item.variants.length>0&&item.variants.every((variant)=>variant.stock===null)?'NOT_CONFIGURED':'AVAILABLE_BY_MODE',
  imageUrl:item.images[0]?.url,images:item.images,fulfillmentMode:item.fulfillmentMode,status:item.status,visibility:item.visibility,
- variants:item.variants.filter((variant)=>variant.status==='ACTIVE'&&variant.visibility==='VISIBLE').map((variant)=>({variantId:variant.id,name:variant.color??variant.sku,color:variant.color,sku:variant.sku,price:effectiveSalePrice(item,variant)===null?null:money(effectiveSalePrice(item,variant)!,item.currency),pricingStatus:effectiveSalePrice(item,variant)===null?'PENDING':'READY',available:(variant.fulfillmentMode??item.fulfillmentMode)==='MADE_TO_ORDER'||(variant.fulfillmentMode??item.fulfillmentMode)==='SERVICE'||(variant.stock??0)>0,availableQuantity:variant.stock??undefined,images:variant.images,fulfillmentMode:variant.fulfillmentMode??item.fulfillmentMode})),
+ variants:item.variants.filter((variant)=>variant.status==='ACTIVE'&&variant.visibility==='VISIBLE').map((variant)=>({variantId:variant.id,name:variant.color??variant.sku,color:variant.color,sku:variant.sku,price:effectiveSalePrice(item,variant)===null?null:money(effectiveSalePrice(item,variant)!,item.currency),pricingStatus:effectiveSalePrice(item,variant)===null?'PENDING':'READY',available:['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(variant.fulfillmentMode??item.fulfillmentMode)||(variant.stock!==null&&variant.stock>0),availableQuantity:variant.stock,availabilityStatus:variant.stock===null?'NOT_CONFIGURED':variant.stock>0?'AVAILABLE':'OUT_OF_STOCK',images:variant.images,fulfillmentMode:variant.fulfillmentMode??item.fulfillmentMode})),
  metadata:{fulfillmentMode:item.fulfillmentMode,pricingStatus:item.pricingStatus},
 })
 const customer=(item:Customer)=>({customerId:item.id,name:item.name,phone:item.phone,email:item.email})
@@ -104,8 +109,7 @@ export class CommerceGateway {
     const raw=input.product
     if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('product is required')
     const candidate={...(raw as CommerceProduct),tenantId}
-    const existing=(await this.commerce.listProducts(tenantId)).find((item)=>item.id===candidate.id)
-    if(!existing)throw new Error('Product not found in tenant')
+    if(!candidate.id||!candidate.name||!candidate.sku||!candidate.slug)throw new Error('Product id, name, sku and slug are required')
     await this.commerce.upsertProducts(tenantId,[candidate])
     return candidate
    }
@@ -122,8 +126,9 @@ export class CommerceGateway {
     if(variantId&&!variant)return{productId,variantId,available:false,reason:'variant_not_found'}
     const mode=variant?.fulfillmentMode??item.fulfillmentMode
     const available=await this.commerce.getAvailability(tenantId,productId,variantId)
-    const canFulfill=mode==='MADE_TO_ORDER'||mode==='SERVICE'||available>=quantity
-    return{productId,variantId,available:canFulfill,...(mode==='STOCK'||mode==='HYBRID'?{availableQuantity:available}:{}),reason:canFulfill?(mode==='MADE_TO_ORDER'?'made_to_order':undefined):'insufficient_stock',fulfillmentMode:mode,pricingStatus:item.pricingStatus}
+    const canFulfill=['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(mode)||(available!==null&&available>=quantity)
+    const reason=available===null&&mode==='STOCK'?'inventory_not_configured':mode==='HYBRID'&&(available===null||available<quantity)?'made_to_order_fallback':canFulfill&&mode==='MADE_TO_ORDER'?'made_to_order':canFulfill?undefined:'insufficient_stock'
+    return{productId,variantId,available:canFulfill,...(mode==='STOCK'||mode==='HYBRID'?{availableQuantity:available}:{}),availabilityStatus:available===null?'NOT_CONFIGURED':available>=quantity?'AVAILABLE':'OUT_OF_STOCK',reason,fulfillmentMode:mode,pricingStatus:item.pricingStatus}
    }
    case 'createOrUpdateCustomer':{
     const customerId=optionalString(input.customerId)
@@ -187,6 +192,21 @@ export class CommerceGateway {
     const order=await this.orders.getOrder(tenantId,requiredString(input.orderId,'orderId'))
     return order?status(order):undefined
    }
+   case 'ownerDashboard': return this.orders.dashboard(tenantId)
+   case 'listOrders':{
+    const orders=await this.orders.listOrders(tenantId)
+    return Promise.all(orders.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(async order=>{
+     const detail=await this.commercial.getCustomerDetail(tenantId,order.customerId)
+     return{...order,customer:detail?customer(detail.customer):null}
+    }))
+   }
+   case 'getOrderDetail':{
+    const detail=await this.orders.getOrderDetail(tenantId,requiredString(input.orderId,'orderId'))
+    if(!detail)return undefined
+    const customerDetail=await this.commercial.getCustomerDetail(tenantId,detail.order.customerId)
+    return{...detail,customer:customerDetail?customer(customerDetail.customer):null}
+   }
+   case 'listPaymentReviews': return this.orders.paymentReviews(tenantId)
    case 'requestHumanEscalation':{
     const conversationId=requiredString(input.conversationId,'conversationId');const reason=requiredString(input.reason,'reason')
     const allowedReasons=new Set(['CUSTOMER_REQUEST','COMPLAINT','PAYMENT_ISSUE','PRICING_EXCEPTION','STOCK_CONFLICT','RETURN_REQUEST','DELIVERY_ISSUE','UNKNOWN_PRODUCT','SYSTEM_ERROR','OTHER'] as const)

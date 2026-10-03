@@ -60,6 +60,17 @@ function encodeFields(data) {
 function decodeFields(document) {
   return Object.fromEntries(Object.entries(document.fields || {}).map(([key, value]) => [key, value.stringValue || '']))
 }
+const safeLog = (stage, details = {}) => console.info(JSON.stringify({ service: 'whatsapp-live', stage, ...details }))
+export function metaErrorDetails(status, body) {
+  const error = body && typeof body === 'object' ? body.error : null
+  return {
+    httpStatus: Number(status) || 0,
+    metaErrorCode: typeof error?.code === 'number' ? error.code : null,
+    metaErrorType: typeof error?.type === 'string' ? error.type.slice(0, 100) : null,
+    message: typeof error?.message === 'string' ? error.message.slice(0, 500) : `Meta send failed (${status})`,
+    fbtraceId: typeof error?.fbtrace_id === 'string' ? error.fbtrace_id.slice(0, 100) : null,
+  }
+}
 async function firestore(path, options = {}) {
   const token = await accessToken()
   return fetch(`${firestoreBase()}${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, ...JSON_HEADERS, ...(options.headers || {}) } })
@@ -98,6 +109,12 @@ export async function listPendingOutbox(limit = 20) {
   const rows = await response.json()
   return rows.filter(row => row.document?.name?.split('/').at(-1).startsWith('out_')).map(row => ({ id: row.document.name.split('/').at(-1), ...decodeFields(row.document) }))
 }
+export async function listLiveDocuments(limit = 200) {
+  const response = await firestore(`?pageSize=${Math.min(limit, 500)}`)
+  if (!response.ok) throw new Error(`Firestore list failed (${response.status})`)
+  const body = await response.json()
+  return (body.documents || []).map(document => ({ id: document.name.split('/').at(-1), ...decodeFields(document) }))
+}
 function outboundId(inboundId) { return `out_${hash(inboundId)}` }
 function inboundId(providerId) { return `in_${hash(providerId)}` }
 export async function prepareReply(message) {
@@ -132,17 +149,27 @@ export async function sendOutbound(id) {
   // Durable claim prevents concurrent sends. An interrupted request remains UNKNOWN,
   // requiring manual reconciliation against Meta before an operator retries it.
   if (!await createDoc(`claim_${hash(id)}`, { outboundId: id, claimedAt: now(), claimId: randomUUID() })) return { status: 'ALREADY_CLAIMED' }
-  await updateDoc(id, { status: 'SENDING', attempts: String(Number(item.attempts || 0) + 1) })
+  const attempt = Number(item.attempts || 0) + 1
+  await updateDoc(id, { status: 'SENDING', attempts: String(attempt) })
+  safeLog('meta_send_started', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENDING', attempt })
   try {
     const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(must('FLOES_WHATSAPP_PHONE_NUMBER_ID'))}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must('META_WHATSAPP_ACCESS_TOKEN')}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: item.text } }) })
     const body = await response.json().catch(() => ({}))
-    if (!response.ok || !body.messages?.[0]?.id) throw new Error(`Meta send failed (${response.status})`)
+    if (!response.ok || !body.messages?.[0]?.id) {
+      const details = metaErrorDetails(response.status, body)
+      const error = new Error(details.message)
+      error.meta = details
+      throw error
+    }
     await updateDoc(id, { status: 'SENT', providerMessageId: body.messages[0].id, sentAt: now() })
+    safeLog('meta_send_succeeded', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENT', httpStatus: response.status })
     return { status: 'SENT', providerMessageId: body.messages[0].id }
   } catch (error) {
     // Do not auto-retry an ambiguous send: Meta may have accepted it before a timeout.
-    await updateDoc(id, { status: 'UNKNOWN', error: error instanceof Error ? error.message : 'Unknown send error' })
-    return { status: 'UNKNOWN' }
+    const details = error?.meta || { httpStatus: 0, metaErrorCode: null, metaErrorType: error instanceof Error ? error.name : 'Error', message: error instanceof Error ? error.message : 'Unknown send error', fbtraceId: null }
+    await updateDoc(id, { status: 'UNKNOWN', error: details.message, httpStatus: details.httpStatus, metaErrorCode: details.metaErrorCode ?? '', metaErrorType: details.metaErrorType ?? '', fbtraceId: details.fbtraceId ?? '' })
+    console.error(JSON.stringify({ service: 'whatsapp-live', stage: 'meta_send_failed', correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'UNKNOWN', ...details }))
+    return { status: 'UNKNOWN', error: details }
   }
 }
 export async function handleWebhook(req, res) {
@@ -163,6 +190,7 @@ export async function handleWebhook(req, res) {
       outcomes.push(result)
       if (result.outboundId) await sendOutbound(result.outboundId)
     }
+    safeLog('webhook_processed', { requestId: req.headers['x-vercel-id'] || '', messageCount: messages.length, outcomeCount: outcomes.length })
     return json(res, 200, { received: true, count: outcomes.length })
   } catch (error) {
     console.error('WhatsApp webhook error:', error instanceof Error ? error.message : 'unknown')

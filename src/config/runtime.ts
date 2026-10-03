@@ -1,1 +1,1 @@
-export const runtimeConfig = { productName: 'Chopify', environmentLabel: 'Foundation · Demo adapter', dataMode: 'SAMPLE' as const }
+export const runtimeConfig = { productName: 'Chopify', environmentLabel: 'Producción · FLOES', dataMode: 'LIVE' as const }

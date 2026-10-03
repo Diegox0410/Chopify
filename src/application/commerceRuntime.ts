@@ -1,46 +1,75 @@
 import type { SampleDatabase } from '../adapters/memory/commercialRepositories.js'
-import { createSampleDatabase,createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
+import { createSampleRepositories } from '../adapters/memory/commercialRepositories.js'
 import type { SampleOrderDatabase } from '../adapters/memory/orderRepositories.js'
-import { createSampleOrderDatabase,createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import { createSampleOrderRepositories } from '../adapters/memory/orderRepositories.js'
+import { floesCatalog } from '../data/catalog/floes.js'
 import { CommercialApplication } from './commercial.js'
 import { OrderApplication } from './orders.js'
 import { SupervisorApplication } from './supervisor.js'
 import { CustomerIdentityResolver } from './customerIdentityResolver.js'
 import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway.js'
 
-export interface CommerceRuntimeState {schemaVersion:2;commercial:SampleDatabase;orders:SampleOrderDatabase}
+export interface CommerceRuntimeState {schemaVersion:3;commercial:SampleDatabase;orders:SampleOrderDatabase}
 export interface CommerceStateRecord {state:CommerceRuntimeState;version:string|null;migrated?:boolean}
 export interface CommerceStateStore {
  load(tenantId:string):Promise<CommerceStateRecord|null>
  save(tenantId:string,state:CommerceRuntimeState,expectedVersion:string|null):Promise<string>
 }
 export class CommerceStateConflictError extends Error{constructor(){super('Commerce state changed concurrently');this.name='CommerceStateConflictError'}}
-const byTenant=<T extends{tenantId:string}>(items:readonly T[],tenantId:string)=>items.filter(i=>i.tenantId===tenantId).map(i=>structuredClone(i))
+const tenants={
+ 'tenant-mg':{id:'tenant-mg',slug:'mg',name:'MG Salud y Belleza',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
+ 'tenant-dgng':{id:'tenant-dgng',slug:'dgng',name:'DGNG',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
+ 'tenant-floes':{id:'tenant-floes',slug:'floes',name:'FLOES',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
+} as const
 export function createTenantCommerceState(tenantId:string):CommerceRuntimeState{
- const commercial=createSampleDatabase();const orders=createSampleOrderDatabase();const tenant=commercial.tenants.find(i=>i.id===tenantId)
+ const tenant=tenants[tenantId as keyof typeof tenants]
  if(!tenant)throw new Error('Unknown tenant')
- const tenantOrderIds=new Set(orders.orders.filter(i=>i.tenantId===tenantId).map(i=>i.id))
- return{schemaVersion:2,commercial:{
-  tenants:[structuredClone(tenant)],customers:byTenant(commercial.customers,tenantId),identities:byTenant(commercial.identities,tenantId),
-  conversations:byTenant(commercial.conversations,tenantId),opportunities:byTenant(commercial.opportunities,tenantId),
-  activities:byTenant(commercial.activities,tenantId),notes:byTenant(commercial.notes,tenantId),tasks:byTenant(commercial.tasks,tenantId),
-  escalations:byTenant(commercial.escalations,tenantId),
+ return{schemaVersion:3,commercial:{
+  tenants:[structuredClone(tenant)],customers:[],identities:[],conversations:[],opportunities:[],activities:[],notes:[],tasks:[],escalations:[],
  },orders:{
-  products:byTenant(orders.products,tenantId),
-  orders:byTenant(orders.orders,tenantId),payments:byTenant(orders.payments,tenantId),proofs:byTenant(orders.proofs,tenantId),
-  reservations:byTenant(orders.reservations,tenantId),idempotency:byTenant(orders.idempotency,tenantId),inventory:byTenant(orders.inventory,tenantId),
-  agreements:byTenant(orders.agreements,tenantId),audit:byTenant(orders.audit,tenantId),
-  publishedOrderIds:orders.publishedOrderIds.filter(id=>tenantOrderIds.has(id)),
+  products:tenantId==='tenant-floes'?floesCatalog.map(item=>structuredClone(item)):[],orders:[],payments:[],proofs:[],reservations:[],idempotency:[],inventory:[],agreements:[],audit:[],publishedOrderIds:[],
  }}
+}
+const scoped=<T extends{tenantId:string}>(tenantId:string,label:string,items:readonly T[]|undefined):T[]=>{
+ const source=items??[]
+ const foreign=source.find(item=>item.tenantId!==tenantId)
+ if(foreign)throw new Error(`Commerce state contains cross-tenant ${label}`)
+ return source.map(item=>structuredClone(item))
+}
+const requireReferences=(label:string,values:readonly string[],known:ReadonlySet<string>)=>{
+ const missing=values.find(value=>!known.has(value))
+ if(missing)throw new Error(`Commerce state contains orphaned ${label}: ${missing}`)
 }
 export function migrateCommerceState(tenantId:string,state:unknown):CommerceRuntimeState{
  if(!state||typeof state!=='object')throw new Error('Commerce state is invalid')
  const legacy=state as {schemaVersion?:number;commercial?:SampleDatabase;orders?:Omit<SampleOrderDatabase,'products'>&{products?:SampleOrderDatabase['products']}}
- if(legacy.schemaVersion!==1&&legacy.schemaVersion!==2)throw new Error(`Unsupported commerce state schema: ${String(legacy.schemaVersion)}`)
+ if(legacy.schemaVersion!==1&&legacy.schemaVersion!==2&&legacy.schemaVersion!==3)throw new Error(`Unsupported commerce state schema: ${String(legacy.schemaVersion)}`)
  if(!legacy.commercial||!legacy.orders)throw new Error('Commerce state is incomplete')
  const seeded=createTenantCommerceState(tenantId)
- const products=legacy.orders.products?.filter((item)=>item.tenantId===tenantId)??seeded.orders.products
- return{schemaVersion:2,commercial:legacy.commercial,orders:{...legacy.orders,products:products.map((item)=>structuredClone(item))}}
+ const products=scoped(tenantId,'products',legacy.orders.products??seeded.orders.products)
+ const mergedProducts=tenantId==='tenant-floes'?[...products,...seeded.orders.products.filter(seed=>!products.some(item=>item.id===seed.id))]:products
+ const customers=scoped(tenantId,'customers',legacy.commercial.customers);const customerIds=new Set(customers.map(item=>item.id))
+ const identities=scoped(tenantId,'identities',legacy.commercial.identities)
+ const conversations=scoped(tenantId,'conversations',legacy.commercial.conversations)
+ const opportunities=scoped(tenantId,'opportunities',legacy.commercial.opportunities)
+ const activities=scoped(tenantId,'activities',legacy.commercial.activities)
+ const notes=scoped(tenantId,'notes',legacy.commercial.notes)
+ const tasks=scoped(tenantId,'tasks',legacy.commercial.tasks)
+ const escalations=scoped(tenantId,'escalations',legacy.commercial.escalations)
+ const orders=scoped(tenantId,'orders',legacy.orders.orders);const orderIds=new Set(orders.map(item=>item.id))
+ const payments=scoped(tenantId,'payments',legacy.orders.payments)
+ const proofs=scoped(tenantId,'payment proofs',legacy.orders.proofs)
+ const reservations=scoped(tenantId,'reservations',legacy.orders.reservations)
+ const idempotency=scoped(tenantId,'idempotency records',legacy.orders.idempotency)
+ const inventory=scoped(tenantId,'inventory positions',legacy.orders.inventory)
+ const agreements=scoped(tenantId,'commercial agreements',legacy.orders.agreements)
+ const audit=scoped(tenantId,'audit events',legacy.orders.audit)
+ requireReferences('customer reference',[...identities,...conversations,...opportunities,...notes,...tasks].map(item=>item.customerId).filter((value):value is string=>typeof value==='string'),customerIds)
+ requireReferences('order reference',[...payments,...proofs,...reservations].map(item=>item.orderId),orderIds)
+ requireReferences('published order reference',legacy.orders.publishedOrderIds,orderIds)
+ return{schemaVersion:3,commercial:{tenants:[structuredClone(seeded.commercial.tenants[0])],customers,
+  identities,conversations,opportunities,activities,notes,tasks,escalations},orders:{products:mergedProducts,orders,
+  payments,proofs,reservations,idempotency,inventory,agreements,audit,publishedOrderIds:[...legacy.orders.publishedOrderIds]}}
 }
 function buildGateway(state:CommerceRuntimeState){
  const commercialRepositories=createSampleRepositories(state.commercial);const orderRepositories=createSampleOrderRepositories(state.orders)

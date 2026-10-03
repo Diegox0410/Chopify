@@ -4,7 +4,7 @@ export interface BusinessCommerceAdapter {
   searchProducts(tenantId: string, query: string): Promise<readonly CommerceProduct[]>
   getProduct(tenantId: string, productId: string, variantId?: string): Promise<CommerceProduct | null>
   getPrice(tenantId: string, productId: string, variantId?: string): Promise<{ priceCents: number; currency: string } | null>
-  getAvailability(tenantId: string, productId: string, variantId?: string): Promise<number>
+  getAvailability(tenantId: string, productId: string, variantId?: string): Promise<number | null>
   reserveInventory(tenantId: string, items: readonly InventoryReservationItem[]): Promise<readonly InventoryPosition[]>
   releaseInventory(tenantId: string, items: readonly InventoryReservationItem[]): Promise<readonly InventoryPosition[]>
   commitInventory(tenantId: string, items: readonly InventoryReservationItem[]): Promise<readonly InventoryPosition[]>

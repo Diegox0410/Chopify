@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
-import { verifyMetaSignature, verifyChallenge, extractMessages, prepareReply } from '../api/_lib/live.js'
+import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply } from '../api/_lib/live.js'
+import { validOperationsToken } from '../api/conversations.js'
 test('Meta HMAC validates exact raw bytes and rejects tampering', () => {
   const raw = Buffer.from('{"entry":[]}')
   const sig = 'sha256=' + createHmac('sha256', 'private').update(raw).digest('hex')
@@ -56,4 +57,19 @@ test('live reply forwards the synchronized bearer and FLOES identity', async () 
     if (previousToken === undefined) delete process.env.GANOBOT_LIVE_BEARER_TOKEN
     else process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken
   }
+})
+test('Meta errors retain actionable diagnostics without credentials', () => {
+  assert.deepEqual(metaErrorDetails(401, { error: { code: 190, type: 'OAuthException', message: 'Invalid OAuth access token.', fbtrace_id: 'trace-123' } }), {
+    httpStatus: 401,
+    metaErrorCode: 190,
+    metaErrorType: 'OAuthException',
+    message: 'Invalid OAuth access token.',
+    fbtraceId: 'trace-123',
+  })
+})
+test('conversation reads require the exact operations bearer', () => {
+  assert.equal(validOperationsToken('Bearer operations-secret', 'operations-secret'), true)
+  assert.equal(validOperationsToken('Bearer wrong', 'operations-secret'), false)
+  assert.equal(validOperationsToken('', 'operations-secret'), false)
+  assert.equal(validOperationsToken('Bearer operations-secret', ''), false)
 })
