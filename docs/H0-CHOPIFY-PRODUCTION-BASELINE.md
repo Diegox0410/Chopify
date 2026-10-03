@@ -6,7 +6,7 @@ Fecha de auditoría: 2026-10-02 (America/Bogota)
 
 Chopify tiene un núcleo comercial tipado con aislamiento por `tenantId`, estados de pedido/pago/fulfillment, idempotencia persistida dentro del estado comercial, auditoría de actividades y persistencia Firestore con control optimista de versión. El storefront FLOES y el catálogo canónico funcionan en producción con precio y stock desconocidos representados como datos pendientes.
 
-H0 no puede declararse cerrado todavía. La producción desplegada expone `GET /api/conversations` sin autenticación (respuesta 200 y 7.932 bytes durante el smoke test). El árbol local ya exige `CHOPIFY_OPERATIONS_API_TOKEN`, pero esa corrección debe desplegarse y verificarse con 401 sin token antes de iniciar H1. También falta una prueba autenticada contra Firestore/Commerce productivo porque no se usaron secretos durante la auditoría.
+H0 no puede declararse cerrado todavía. Durante el primer smoke, producción exponía `GET /api/conversations` sin autenticación (respuesta 200 y 7.932 bytes). La corrección fue incluida en el commit `02eacb5`, desplegada mediante el flujo Git conectado a Vercel y verificada en producción: sin token y con token inválido ahora devuelve 401 sin conversaciones. Falta completar el smoke autenticado porque las credenciales locales disponibles no son aceptadas por el deployment actual y todavía no existe un token Owner FLOES configurado para demostrar aislamiento tenant-scoped.
 
 Correcciones H0 locales:
 
@@ -73,7 +73,7 @@ No se ejecutó ninguna migración destructiva ni se borró información existent
 - La migración valida que todas las colecciones pertenezcan al tenant solicitado y rechaza mezcla cross-tenant.
 - Tests cubren lectura/mutación tenant-aware y persistencia aislada.
 
-Riesgo cerrado localmente: `api/conversations.js` aceptaba `tenantId` sin autenticación. Ahora requiere el token Operations exacto. La producción sigue vulnerable hasta desplegar.
+Riesgo cerrado en producción: `api/conversations.js` aceptaba `tenantId` sin autenticación. Ahora requiere el token Operations exacto; el deployment devuelve 401 sin credencial o con credencial inválida.
 
 ## 5. Commerce contract
 
@@ -203,14 +203,19 @@ Smoke test de solo lectura contra `https://chopify-ten.vercel.app/`:
 - SPA `/dashboard`: HTTP 200;
 - `/api/commerce` GET: 405 esperado;
 - `/api/commerce` POST sin token: 401 esperado;
-- `/api/conversations?tenantId=tenant-floes` sin token: FAIL/P0, 200 con payload. Corregido localmente, pendiente deploy.
+- `/api/conversations?tenantId=tenant-floes` antes del fix: FAIL/P0, 200 con payload de 7.932 bytes.
+- deployment: PASS, commit `02eacb5` enviado por fast-forward a `origin/main`; Vercel cambió el endpoint de 200 a 401.
+- `/api/conversations?tenantId=tenant-floes` sin token después del deploy: PASS, 401 estable en cinco comprobaciones consecutivas.
+- `/api/conversations?tenantId=tenant-floes` con token inválido: PASS, 401 y solo `{error:"Unauthorized"}`.
+- autenticación válida: BLOCKED; los valores del archivo local de entorno productivo fueron rechazados también por `/api/commerce`, por lo que no se usaron para inferir un PASS.
+- tenant isolation autenticado: BLOCKED; falta una credencial Owner FLOES válida para comprobar FLOES permitido y el mismo token rechazado contra otro tenant.
+- conexión Firestore pública: PASS parcial mediante catálogo FLOES persistido; lectura Commerce autenticada aún BLOCKED.
 
 Nota: `/store/floes` no es una ruta tenant; interpreta `floes` como slug de producto y muestra “Producto no encontrado”. La ruta canónica del catálogo es `/` o `/store`.
 
 ## 12. Deferred issues
 
-- P1/BLOCKER: desplegar el guard de autenticación de conversaciones y verificar 401/200 autorizado.
-- P1/BLOCKER de verificación: ejecutar smoke autenticado Commerce/Owner con credenciales de prueba y confirmar persistencia Firestore sin tocar datos reales.
+- P1/BLOCKER de verificación: sincronizar o rotar credenciales productivas de prueba para Operations, Commerce y Owner FLOES; ejecutar 200 autorizado y confirmar aislamiento tenant-scoped sin tocar datos reales.
 - P2: volver nullable/expresivo el valor estimado de oportunidad para que pipeline desconocido no nazca en cero.
 - P2: dividir el documento Firestore monolítico si el volumen/concurrencia excede el piloto; hoy el control optimista es correcto pero puede generar contención.
 - P2: procedimiento explícito, respaldado y auditable para identificar/archivar fixtures legacy ya persistidos. H0 no los elimina automáticamente.
@@ -220,7 +225,7 @@ Nota: `/store/floes` no es una ruta tenant; interpreta `floes` como slug de prod
 
 El contrato local está listo para que FLOES consuma catálogo, customers, opportunities, order draft, payment proof, order status y escalación; las acciones de pago/fulfillment permanecen separadas y humanas. Idempotency keys, tenant scoping, snapshots y auditoría existen.
 
-No es seguro iniciar H1 mientras la producción siga exponiendo conversaciones sin token y mientras no se verifique el flujo autenticado tras el deploy.
+No es seguro iniciar H1 hasta verificar los flujos autenticados de Conversations, Commerce y Owner y el rechazo cross-tenant con credenciales aprobadas.
 
 ## H0 status
 
@@ -228,10 +233,10 @@ No es seguro iniciar H1 mientras la producción siga exponiendo conversaciones s
 H0 STATUS: BLOCKED
 
 CHOPIFY BASELINE:
-Local core hardened; build, lint and 192 tests PASS. Production storefront works, but deployed conversations endpoint is unauthenticated.
+Local core hardened; build, lint and 192 tests PASS. Production rejects unauthenticated/invalid conversation reads; authenticated Commerce/Owner/tenant-isolation smoke remains blocked by unavailable valid test credentials.
 
 SAFE TO START H1 FLOES: NO
 
 REASON:
-Deploy and verify the local conversations authentication fix, then run an authenticated non-destructive Commerce/Owner smoke test with approved test credentials.
+Synchronize or rotate approved production test credentials for Operations, Commerce and Owner FLOES, then run authenticated non-destructive Commerce/Owner and tenant-isolation smoke tests.
 ```
