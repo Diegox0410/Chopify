@@ -1,5 +1,6 @@
-﻿import { listLiveDocuments } from './_lib/live.js'
 import { timingSafeEqual } from 'node:crypto'
+import { listLiveDocuments } from './_lib/live.js'
+import { authorizePlatformOwner } from './_lib/firebaseAuth.js'
 
 const json = (res, status, body) => {
   res.statusCode = status
@@ -10,7 +11,7 @@ const json = (res, status, body) => {
 
 const masked = value => {
   const digits = String(value || '').replace(/\D/g, '')
-  return digits.length > 4 ? `Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢ ${digits.slice(-4)}` : 'Cliente WhatsApp'
+  return digits.length > 4 ? `**** ${digits.slice(-4)}` : 'Cliente WhatsApp'
 }
 
 const contact = item =>
@@ -38,33 +39,54 @@ export const validOperationsToken = (supplied, expected) => {
 
 const OPERATIONS_TENANT_ID = 'tenant-floes'
 
+async function authorize(req) {
+  const authorization = req.headers?.authorization
+
+  if (
+    validOperationsToken(
+      authorization,
+      process.env.CHOPIFY_OPERATIONS_API_TOKEN,
+    )
+  ) {
+    return { type: 'operations' }
+  }
+
+  const platformOwner = await authorizePlatformOwner(req)
+
+  if (platformOwner.ok) {
+    return {
+      type: 'platform-owner',
+      uid: platformOwner.identity.uid,
+    }
+  }
+
+  return { type: 'denied', status: platformOwner.status }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return json(res, 405, { error: 'Method not allowed' })
   }
 
-  if (
-    !validOperationsToken(
-      req.headers?.authorization,
-      process.env.CHOPIFY_OPERATIONS_API_TOKEN,
-    )
-  ) {
-    return json(res, 401, { error: 'Unauthorized' })
-  }
-
   try {
+    const access = await authorize(req)
+
+    if (access.type === 'denied') {
+      return json(res, access.status, { error: access.status === 403 ? 'Forbidden' : 'Unauthorized' })
+    }
+
     const requested =
       typeof req.query?.tenantId === 'string'
         ? req.query.tenantId
         : OPERATIONS_TENANT_ID
 
     /*
-     * H0 tenant boundary:
-     * CHOPIFY_OPERATIONS_API_TOKEN is currently the FLOES operations
-     * credential. It must not authorize reads from another tenant.
+     * Pilot tenant boundary:
+     * Both the legacy Operations credential and the authenticated Platform
+     * Owner are currently restricted to FLOES conversations.
      *
-     * When MG or DGNG operations are enabled, provision tenant-scoped
-     * credentials instead of widening this allowlist.
+     * MG and DGNG must receive an explicit tenant authorization model before
+     * this boundary is widened.
      */
     if (requested !== OPERATIONS_TENANT_ID) {
       return json(res, 403, { error: 'Tenant not allowed' })
@@ -99,6 +121,7 @@ export default async function handler(req, res) {
             outbound?.mode ||
             (item.status === 'NEEDS_HUMAN' ? 'HUMAN' : 'PENDING'),
           requiresHuman: item.status === 'NEEDS_HUMAN',
+          escalationReason: item.escalationReason || '',
           inbound: {
             status: item.status || 'RECEIVED',
             receivedAt: item.receivedAt || '',

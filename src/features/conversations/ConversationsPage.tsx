@@ -1,15 +1,114 @@
 import { MessageSquareText,RefreshCw } from 'lucide-react'
 import { useCallback,useEffect,useState } from 'react'
 import { EmptyState,StatusPill } from '../commercial/shared'
-import { useUIStore } from '../../stores/uiStore'
+import { auth } from '../../auth/firebaseClient'
+
 type Outbound={status:string;mode:string;attempts:number}
-type LiveConversation={id:string;tenantId:string;channel:'WHATSAPP';contact:string;lastActivityAt:string;status:string;mode:string;requiresHuman:boolean;outbound:Outbound|null}
-const names:Record<string,string>={'tenant-floes':'FLOES','tenant-mg':'MG Salud y Belleza','tenant-dgng':'DGNG'}
-const date=(value:string)=>value?new Intl.DateTimeFormat('es-CO',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'Sin fecha'
+type LiveConversation={id:string;tenantId:string;channel:'WHATSAPP';contact:string;lastActivityAt:string;status:string;mode:string;requiresHuman:boolean;escalationReason:string;outbound:Outbound|null}
+
+const date=(value:string)=>value
+  ? new Intl.DateTimeFormat('es-EC',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value))
+  : 'Sin fecha'
+
 export function ConversationsPage(){
- const stored=useUIStore(state=>state.tenantScope);const tenant=stored==='ALL'?'tenant-floes':stored;const setTenant=useUIStore(state=>state.setTenantScope)
- const [access,setAccess]=useState(()=>sessionStorage.getItem('chopify-operations-access')??'');const [items,setItems]=useState<readonly LiveConversation[]>([]);const [loading,setLoading]=useState(false);const [error,setError]=useState('')
- const load=useCallback(()=>{if(!access){setItems([]);setError('Ingresa la clave de operaciones para consultar conversaciones reales.');return}sessionStorage.setItem('chopify-operations-access',access);setLoading(true);setError('');void fetch(`/api/conversations?tenantId=${encodeURIComponent(tenant)}`,{headers:{accept:'application/json',authorization:`Bearer ${access}`}}).then(async response=>{const body=await response.json();if(!response.ok)throw new Error(response.status===401?'La clave de operaciones no es válida.':body.error||'No fue posible cargar conversaciones reales');setItems(body)}).catch(cause=>setError(cause instanceof Error?cause.message:'No fue posible cargar conversaciones reales')).finally(()=>setLoading(false))},[access,tenant])
- useEffect(()=>{const timer=window.setTimeout(load,0);return()=>window.clearTimeout(timer)},[load])
- return <div className="page"><div className="page-heading"><div><span className="eyebrow">Operación real</span><h1>Conversaciones</h1><p>Eventos persistidos del canal WhatsApp. No se generan contactos ni conversaciones de muestra.</p></div><label className="field compact-field"><span>Clave de operaciones</span><input type="password" value={access} onChange={event=>setAccess(event.target.value)} autoComplete="current-password"/></label><label className="field compact-field"><span>Negocio</span><select value={tenant} onChange={event=>setTenant(event.target.value)}><option value="tenant-floes">FLOES</option><option value="tenant-mg">MG Salud y Belleza</option><option value="tenant-dgng">DGNG</option></select></label><button className="secondary-button" onClick={load} disabled={loading||!access.trim()}><RefreshCw size={15}/> Actualizar</button></div>{error&&<div className="error-banner">{error} <button onClick={load} disabled={!access.trim()}>Reintentar</button></div>}{!loading&&items.length===0?<EmptyState title="Sin conversaciones reales" body="Cuando llegue un mensaje del canal productivo aparecerá aquí."/>:<section className="conversation-grid">{items.map(item=><article className="conversation-card panel" key={item.id}><div className="conversation-icon"><MessageSquareText size={18}/></div><div><strong>{item.contact}</strong><span>{names[item.tenantId]??'Tienda'} · {item.channel}</span></div><StatusPill value={item.outbound?.status||item.status}/><div className="conversation-meta"><span>Última actividad</span><strong>{date(item.lastActivityAt)}</strong><span>Modo</span><strong>{item.mode}</strong><span>Requiere atención</span><strong>{item.requiresHuman?'Sí':'No'}</strong><span>Outbound</span><strong>{item.outbound?.status||'Sin outbound'}</strong><span>Intentos</span><strong>{item.outbound?.attempts??0}</strong></div></article>)}</section>}</div>
+  const tenant='tenant-floes'
+  const [items,setItems]=useState<readonly LiveConversation[]>([])
+  const [loading,setLoading]=useState(false)
+  const [error,setError]=useState('')
+
+  const load=useCallback(async()=>{
+    setLoading(true)
+    setError('')
+
+    try{
+      const user=auth.currentUser
+      if(!user)throw new Error('La sesión administrativa no está disponible.')
+
+      const idToken=await user.getIdToken()
+
+      const response=await fetch(`/api/conversations?tenantId=${encodeURIComponent(tenant)}`,{
+        headers:{
+          accept:'application/json',
+          authorization:`Bearer ${idToken}`,
+        },
+      })
+
+      const body=await response.json()
+
+      if(!response.ok){
+        if(response.status===401)throw new Error('La sesión no es válida o ha expirado.')
+        if(response.status===403)throw new Error('Tu usuario no tiene autorización de Platform Owner.')
+        throw new Error(body.error||'No fue posible cargar conversaciones reales.')
+      }
+
+      setItems(body)
+    }catch(cause){
+      setItems([])
+      setError(cause instanceof Error?cause.message:'No fue posible cargar conversaciones reales.')
+    }finally{
+      setLoading(false)
+    }
+  },[])
+
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>{void load()},0)
+    return()=>window.clearTimeout(timer)
+  },[load])
+
+  return <div className="page">
+    <div className="page-heading">
+      <div>
+        <span className="eyebrow">Operación real</span>
+        <h1>Conversaciones</h1>
+        <p>Eventos persistidos del canal WhatsApp de FLOES. No se generan contactos ni conversaciones de muestra.</p>
+      </div>
+
+      <button className="secondary-button" onClick={()=>void load()} disabled={loading}>
+        <RefreshCw size={15}/> {loading?'Actualizando...':'Actualizar'}
+      </button>
+    </div>
+
+    {error&&
+      <div className="error-banner">
+        {error} <button onClick={()=>void load()}>Reintentar</button>
+      </div>
+    }
+
+    {!loading&&items.length===0
+      ? <EmptyState
+          title="Sin conversaciones reales"
+          body="Cuando llegue un mensaje del canal productivo de FLOES aparecerá aquí."
+        />
+      : <section className="conversation-grid">
+          {items.map(item=>
+            <article className="conversation-card panel" key={item.id}>
+              <div className="conversation-icon">
+                <MessageSquareText size={18}/>
+              </div>
+
+              <div>
+                <strong>{item.contact}</strong>
+                <span>FLOES · {item.channel}</span>
+              </div>
+
+              <StatusPill value={item.outbound?.status||item.status}/>
+
+              <div className="conversation-meta">
+                <span>Última actividad</span>
+                <strong>{date(item.lastActivityAt)}</strong>
+                <span>Modo</span>
+                <strong>{item.mode}</strong>
+                <span>Requiere atención</span>
+                <strong>{item.requiresHuman?'Sí':'No'}</strong>
+                {item.requiresHuman&&<><span>Razón</span><strong>{item.escalationReason||'No registrada'}</strong></>}
+                <span>Outbound</span>
+                <strong>{item.outbound?.status||'Sin outbound'}</strong>
+                <span>Intentos</span>
+                <strong>{item.outbound?.attempts??'No disponible'}</strong>
+              </div>
+            </article>
+          )}
+        </section>
+    }
+  </div>
 }

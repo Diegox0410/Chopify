@@ -46,6 +46,7 @@ export interface CommerceGatewayRequest {
   idempotencyKey?: string
   correlationId?: string
   requestId?: string
+  actor?: ActorContext
 }
 
 const money=(cents:number,currency:string)=>({amount:cents/100,currency})
@@ -60,7 +61,15 @@ const product=(item:CommerceProduct)=>({
 })
 const customer=(item:Customer)=>({customerId:item.id,name:item.name,phone:item.phone,email:item.email})
 const actor=(tenantId:string):ActorContext=>({actorId:'ganobot-commerce',role:'AUTOMATION',tenantId})
-const humanActor=(tenantId:string):ActorContext=>({actorId:'chopify-operations',role:'TENANT_OWNER',tenantId})
+const humanActor=(tenantId:string,requestActor?:ActorContext):ActorContext=>{
+ if(requestActor){
+  if(requestActor.role!=='PLATFORM_OWNER'&&requestActor.tenantId!==tenantId)throw new Error('Actor tenant mismatch')
+  return requestActor.role==='PLATFORM_OWNER'
+   ? {actorId:requestActor.actorId,role:'PLATFORM_OWNER'}
+   : {...requestActor,tenantId}
+ }
+ return {actorId:'chopify-operations',role:'TENANT_OWNER',tenantId}
+}
 const requiredString=(value:unknown,label:string)=>{
  if(typeof value!=='string'||!value.trim())throw new Error(`${label} is required`)
  return value.trim()
@@ -219,25 +228,25 @@ export class CommerceGateway {
    }
    case 'approvePayment':{
     const paymentId=requiredString(input.paymentId,'paymentId');const proofId=requiredString(input.proofId,'proofId')
-    const payment=await this.orders.approvePayment({tenantId,paymentId,proofId,idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??proofId}:approvePayment`,actor:humanActor(tenantId)})
+    const payment=await this.orders.approvePayment({tenantId,paymentId,proofId,idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??proofId}:approvePayment`,actor:humanActor(tenantId,request.actor)})
     return{paymentId:payment.id,orderId:payment.orderId,status:'approved'}
    }
    case 'rejectPaymentProof':{
     const paymentId=requiredString(input.paymentId,'paymentId');const proofId=requiredString(input.proofId,'proofId')
-    const proof=await this.orders.rejectPaymentProof({tenantId,paymentId,proofId,reason:requiredString(input.reason,'reason'),idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??proofId}:rejectPaymentProof`,actor:humanActor(tenantId)})
+    const proof=await this.orders.rejectPaymentProof({tenantId,paymentId,proofId,reason:requiredString(input.reason,'reason'),idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??proofId}:rejectPaymentProof`,actor:humanActor(tenantId,request.actor)})
     return{paymentId:proof.paymentId,proofId:proof.id,orderId:proof.orderId,status:'rejected'}
    }
    case 'startPreparation':{
-    return status(await this.orders.startPreparation(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId)))
+    return status(await this.orders.startPreparation(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId,request.actor)))
    }
    case 'markReady':{
-    return status(await this.orders.markReady(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId)))
+    return status(await this.orders.markReady(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId,request.actor)))
    }
    case 'dispatchOrder':{
-    return status(await this.orders.dispatchOrder(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId),{courier:optionalString(input.courier),trackingCode:optionalString(input.trackingCode)}))
+    return status(await this.orders.dispatchOrder(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId,request.actor),{courier:optionalString(input.courier),trackingCode:optionalString(input.trackingCode)}))
    }
    case 'markDelivered':{
-    return status(await this.orders.markDelivered(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId)))
+    return status(await this.orders.markDelivered(tenantId,requiredString(input.orderId,'orderId'),humanActor(tenantId,request.actor)))
    }
   }
  }

@@ -8,6 +8,8 @@
   },
   "include": [
     "./commerce.ts",
+    "./admin.ts",
+    "./_lib/firebaseAuth.d.ts",
     "../src/application/**/*.ts",
     "../src/domain/**/*.ts",
     "../src/repositories/**/*.ts",

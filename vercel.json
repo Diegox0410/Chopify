@@ -2,11 +2,14 @@
   "functions": {
     "api/*.js": {
       "maxDuration": 30
+    },
+    "api/*.ts": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api(?:/|$)|src(?:/|$)|@vite(?:/|$)|@react-refresh$|node_modules(?:/|$)|__vite_ping$).*)",
       "destination": "/index.html"
     }
   ]

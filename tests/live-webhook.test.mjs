@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
-import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply } from '../api/_lib/live.js'
+import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply, escalationReason, receive, LiveDependencyError } from '../api/_lib/live.js'
 import { validOperationsToken } from '../api/conversations.js'
 test('Meta HMAC validates exact raw bytes and rejects tampering', () => {
   const raw = Buffer.from('{"entry":[]}')
@@ -49,7 +49,7 @@ test('live reply forwards the synchronized bearer and FLOES identity', async () 
       from: '593962701442',
       name: 'Cliente',
       text: '¿Qué productos tienen disponibles?',
-    }), { text: 'Catálogo FLOES', mode: 'GANOBOT_LIVE' })
+    }), { text: 'Catálogo FLOES', requiresHuman: false, mode: 'GANOBOT_LIVE' })
   } finally {
     globalThis.fetch = previousFetch
     if (previousUrl === undefined) delete process.env.GANOBOT_LIVE_URL
@@ -58,6 +58,83 @@ test('live reply forwards the synchronized bearer and FLOES identity', async () 
     else process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken
   }
 })
+
+test('explicit GanoBot HUMAN decision wins even when a reply is present', async () => {
+  const previousUrl = process.env.GANOBOT_LIVE_URL
+  const previousToken = process.env.GANOBOT_LIVE_BEARER_TOKEN
+  const previousFetch = globalThis.fetch
+
+  process.env.GANOBOT_LIVE_URL = 'https://gano.example/api/live'
+  process.env.GANOBOT_LIVE_BEARER_TOKEN = 'private-live-token'
+
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    reply: 'Este texto no debe enviarse automáticamente',
+    requiresHuman: true,
+    escalationReason: 'CUSTOMER_REQUEST',
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  try {
+    assert.deepEqual(
+      await prepareReply({
+        id: 'wamid.human',
+        from: '593962701442',
+        name: 'Cliente',
+        text: 'Quiero hablar con una persona',
+      }),
+      {
+        requiresHuman: true,
+        escalationReason: 'CUSTOMER_REQUEST',
+        mode: 'GANOBOT_LIVE',
+      },
+    )
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousUrl === undefined) delete process.env.GANOBOT_LIVE_URL
+    else process.env.GANOBOT_LIVE_URL = previousUrl
+    if (previousToken === undefined) delete process.env.GANOBOT_LIVE_BEARER_TOKEN
+    else process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken
+  }
+})
+
+test('unknown GanoBot HUMAN reason is sanitized to OTHER', async () => {
+  const previousUrl = process.env.GANOBOT_LIVE_URL
+  const previousToken = process.env.GANOBOT_LIVE_BEARER_TOKEN
+  const previousFetch = globalThis.fetch
+
+  process.env.GANOBOT_LIVE_URL = 'https://gano.example/api/live'
+  process.env.GANOBOT_LIVE_BEARER_TOKEN = 'private-live-token'
+
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    requiresHuman: true,
+    escalationReason: 'UNTRUSTED_REASON',
+  }), { status: 200 })
+
+  try {
+    assert.deepEqual(
+      await prepareReply({
+        id: 'wamid.human.unknown',
+        from: '593962701442',
+        name: 'Cliente',
+        text: 'Necesito ayuda',
+      }),
+      {
+        requiresHuman: true,
+        escalationReason: 'OTHER',
+        mode: 'GANOBOT_LIVE',
+      },
+    )
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousUrl === undefined) delete process.env.GANOBOT_LIVE_URL
+    else process.env.GANOBOT_LIVE_URL = previousUrl
+    if (previousToken === undefined) delete process.env.GANOBOT_LIVE_BEARER_TOKEN
+    else process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken
+  }
+})
+
 test('Meta errors retain actionable diagnostics without credentials', () => {
   assert.deepEqual(metaErrorDetails(401, { error: { code: 190, type: 'OAuthException', message: 'Invalid OAuth access token.', fbtrace_id: 'trace-123' } }), {
     httpStatus: 401,
@@ -67,9 +144,296 @@ test('Meta errors retain actionable diagnostics without credentials', () => {
     fbtraceId: 'trace-123',
   })
 })
+test('missing GanoBot config escalates to HUMAN without fabricating a reply', async () => {
+  const previousUrl = process.env.GANOBOT_LIVE_URL
+  const previousToken = process.env.GANOBOT_LIVE_BEARER_TOKEN
+  delete process.env.GANOBOT_LIVE_URL
+  delete process.env.GANOBOT_LIVE_BEARER_TOKEN
+  try {
+    await assert.rejects(() => prepareReply({ id: 'wamid.missing' }), error => escalationReason(error) === 'GANOBOT_NOT_CONFIGURED')
+  } finally {
+    if (previousUrl !== undefined) process.env.GANOBOT_LIVE_URL = previousUrl
+    if (previousToken !== undefined) process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken
+  }
+})
+test('invalid GanoBot response has a stable auditable escalation reason', async () => {
+  const previousUrl = process.env.GANOBOT_LIVE_URL
+  const previousToken = process.env.GANOBOT_LIVE_BEARER_TOKEN
+  const previousFetch = globalThis.fetch
+  process.env.GANOBOT_LIVE_URL = 'https://gano.example/api/live'
+  process.env.GANOBOT_LIVE_BEARER_TOKEN = 'private-live-token'
+  globalThis.fetch = async () => new Response(JSON.stringify({ reply: '' }), { status: 200 })
+  try { await assert.rejects(() => prepareReply({ id: 'wamid.invalid' }), error => escalationReason(error) === 'GANOBOT_INVALID_RESPONSE') }
+  finally { globalThis.fetch = previousFetch; if (previousUrl === undefined) delete process.env.GANOBOT_LIVE_URL; else process.env.GANOBOT_LIVE_URL = previousUrl; if (previousToken === undefined) delete process.env.GANOBOT_LIVE_BEARER_TOKEN; else process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken }
+})
 test('conversation reads require the exact operations bearer', () => {
   assert.equal(validOperationsToken('Bearer operations-secret', 'operations-secret'), true)
   assert.equal(validOperationsToken('Bearer wrong', 'operations-secret'), false)
   assert.equal(validOperationsToken('', 'operations-secret'), false)
   assert.equal(validOperationsToken('Bearer operations-secret', ''), false)
+})
+
+
+test('receive queues exactly one outbound for an automatic reply', async () => {
+  const created = []
+  const updated = []
+
+  const result = await receive({
+    id: 'wamid.receive.auto',
+    from: '593999999999',
+    text: 'Hola',
+    name: 'Cliente',
+    phoneNumberId: 'phone-floes',
+    receivedAt: new Date().toISOString(),
+  }, {
+    createDoc: async (id, data) => {
+      created.push({ id, data })
+      return true
+    },
+    updateDoc: async (id, data) => {
+      updated.push({ id, data })
+    },
+    prepareReply: async () => ({
+      text: 'Respuesta automática',
+      requiresHuman: false,
+      mode: 'GANOBOT_LIVE',
+    }),
+  })
+
+  const inbound = created.find(entry => entry.id.startsWith('in_'))
+  const outbound = created.find(entry => entry.id.startsWith('out_'))
+
+  assert.ok(inbound)
+  assert.ok(outbound)
+
+  // El outbound nace bloqueado: todavía no puede ser despachado.
+  assert.equal(outbound.data.status, 'PREPARED')
+
+  // Primero debe quedar persistido el inbound como QUEUED.
+  const inboundQueuedIndex = updated.findIndex(entry =>
+    entry.id === inbound.id &&
+    entry.data.status === 'QUEUED'
+  )
+
+  // Solo después se habilita el outbound para despacho.
+  const outboundPendingIndex = updated.findIndex(entry =>
+    entry.id === outbound.id &&
+    entry.data.status === 'PENDING'
+  )
+
+  assert.notEqual(inboundQueuedIndex, -1)
+  assert.notEqual(outboundPendingIndex, -1)
+  assert.ok(inboundQueuedIndex < outboundPendingIndex)
+
+  assert.equal(result.duplicate, false)
+  assert.equal(result.outboundId, outbound.id)
+
+  // Exactamente un outbound fue persistido.
+  assert.equal(
+    created.filter(entry => entry.id.startsWith('out_')).length,
+    1,
+  )
+})
+
+test('receive explicit HUMAN decision creates no outbound', async () => {
+  const created = []
+  const updated = []
+
+  const result = await receive({
+    id: 'wamid.receive.human',
+    from: '593962701442',
+    name: 'Cliente',
+    text: 'Quiero una persona',
+    phoneNumberId: 'FLOES',
+    receivedAt: '2026-10-04T03:00:00.000Z',
+  }, {
+    createDoc: async (id, data) => {
+      created.push({ id, data })
+      return true
+    },
+    updateDoc: async (id, data) => {
+      updated.push({ id, data })
+    },
+    prepareReply: async () => ({
+      requiresHuman: true,
+      escalationReason: 'CUSTOMER_REQUEST',
+      mode: 'GANOBOT_LIVE',
+    }),
+  })
+
+  assert.equal(result.needsHuman, true)
+  assert.equal(result.escalationReason, 'CUSTOMER_REQUEST')
+  assert.equal(created.length, 1)
+  assert.equal(updated.length, 1)
+  assert.equal(updated[0].data.status, 'NEEDS_HUMAN')
+  assert.equal(updated[0].data.escalationReason, 'CUSTOMER_REQUEST')
+})
+
+test('duplicate inbound stops before GanoBot and creates no outbound', async () => {
+  let ganobotCalls = 0
+  let createCalls = 0
+  let updateCalls = 0
+
+  const result = await receive({
+    id: 'wamid.receive.duplicate',
+    from: '593962701442',
+    name: 'Cliente',
+    text: 'Hola otra vez',
+    phoneNumberId: 'FLOES',
+    receivedAt: '2026-10-04T03:00:00.000Z',
+  }, {
+    createDoc: async () => {
+      createCalls += 1
+      return false
+    },
+    updateDoc: async () => {
+      updateCalls += 1
+    },
+    prepareReply: async () => {
+      ganobotCalls += 1
+      return {
+        text: 'No debe ejecutarse',
+        requiresHuman: false,
+        mode: 'GANOBOT_LIVE',
+      }
+    },
+  })
+
+  assert.equal(result.duplicate, true)
+  assert.equal(createCalls, 1)
+  assert.equal(ganobotCalls, 0)
+  assert.equal(updateCalls, 0)
+})
+
+test('GanoBot failure becomes SYSTEM_ERROR with its technical reason and no outbound', async () => {
+  const created = []
+  const updated = []
+
+  const result = await receive({
+    id: 'wamid.receive.timeout',
+    from: '593962701442',
+    name: 'Cliente',
+    text: 'Hola',
+    phoneNumberId: 'FLOES',
+    receivedAt: '2026-10-04T03:00:00.000Z',
+  }, {
+    createDoc: async (id, data) => {
+      created.push({ id, data })
+      return true
+    },
+    updateDoc: async (id, data) => {
+      updated.push({ id, data })
+    },
+    prepareReply: async () => {
+      throw new LiveDependencyError(
+        'GANOBOT_TIMEOUT',
+        'GanoBot live request timed out',
+      )
+    },
+  })
+
+  assert.equal(result.needsHuman, true)
+  assert.equal(result.escalationReason, 'SYSTEM_ERROR')
+  assert.equal(result.technicalReason, 'GANOBOT_TIMEOUT')
+  assert.equal(created.length, 1)
+  assert.equal(updated.length, 1)
+  assert.equal(updated[0].data.status, 'NEEDS_HUMAN')
+  assert.equal(updated[0].data.technicalReason, 'GANOBOT_TIMEOUT')
+})
+
+test('outbound persistence failure is never mislabeled as GanoBot unavailable', async () => {
+  const updated = []
+  let createCalls = 0
+  let ganobotCalls = 0
+
+  const result = await receive({
+    id: 'wamid.receive.persistence',
+    from: '593962701442',
+    name: 'Cliente',
+    text: 'Hola',
+    phoneNumberId: 'FLOES',
+    receivedAt: '2026-10-04T03:00:00.000Z',
+  }, {
+    createDoc: async () => {
+      createCalls += 1
+
+      if (createCalls === 1) return true
+
+      throw new Error('Firestore create failed (503)')
+    },
+    updateDoc: async (id, data) => {
+      updated.push({ id, data })
+    },
+    prepareReply: async () => {
+      ganobotCalls += 1
+      return {
+        text: 'Respuesta válida de GanoBot',
+        requiresHuman: false,
+        mode: 'GANOBOT_LIVE',
+      }
+    },
+  })
+
+  assert.equal(ganobotCalls, 1)
+  assert.equal(result.needsHuman, true)
+  assert.equal(result.escalationReason, 'SYSTEM_ERROR')
+  assert.equal(result.technicalReason, 'OUTBOUND_PERSISTENCE_ERROR')
+  assert.notEqual(result.technicalReason, 'GANOBOT_UNAVAILABLE')
+  assert.equal(updated.at(-1).data.status, 'NEEDS_HUMAN')
+  assert.equal(
+    updated.at(-1).data.technicalReason,
+    'OUTBOUND_PERSISTENCE_ERROR',
+  )
+})
+
+
+test('inbound queue persistence failure never leaves a sendable outbound', async () => {
+  const created = []
+  const updated = []
+
+  const result = await receive({
+    id: 'wamid.receive.queue-failure',
+    from: '593999999999',
+    text: 'Hola',
+    name: 'Cliente',
+    phoneNumberId: 'phone-floes',
+    receivedAt: new Date().toISOString(),
+  }, {
+    createDoc: async (id, data) => {
+      created.push({ id, data })
+      return true
+    },
+    updateDoc: async (id, data) => {
+      updated.push({ id, data })
+
+      if (
+        id.startsWith('in_') &&
+        data.status === 'QUEUED'
+      ) {
+        throw new Error('simulated inbound queue persistence failure')
+      }
+    },
+    prepareReply: async () => ({
+      text: 'Respuesta segura',
+      requiresHuman: false,
+      mode: 'GANOBOT_LIVE',
+    }),
+  })
+
+  const outbound = created.find(entry => entry.id.startsWith('out_'))
+
+  assert.ok(outbound)
+  assert.equal(outbound.data.status, 'PREPARED')
+
+  assert.equal(
+    updated.some(entry =>
+      entry.id.startsWith('out_') &&
+      entry.data.status === 'PENDING'
+    ),
+    false,
+  )
+
+  assert.equal(result.needsHuman, true)
+  assert.equal(result.escalationReason, 'SYSTEM_ERROR')
+  assert.equal(result.technicalReason, 'OUTBOUND_PERSISTENCE_ERROR')
 })

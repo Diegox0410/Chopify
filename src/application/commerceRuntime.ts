@@ -16,13 +16,13 @@ export interface CommerceStateStore {
  save(tenantId:string,state:CommerceRuntimeState,expectedVersion:string|null):Promise<string>
 }
 export class CommerceStateConflictError extends Error{constructor(){super('Commerce state changed concurrently');this.name='CommerceStateConflictError'}}
-const tenants={
- 'tenant-mg':{id:'tenant-mg',slug:'mg',name:'MG Salud y Belleza',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
- 'tenant-dgng':{id:'tenant-dgng',slug:'dgng',name:'DGNG',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
- 'tenant-floes':{id:'tenant-floes',slug:'floes',name:'FLOES',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
+export const tenantDefinitions={
+ 'tenant-mg':{id:'tenant-mg',slug:'mg',name:'MG Salud y Belleza',currency:'USD',status:'ONBOARDING',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
+ 'tenant-dgng':{id:'tenant-dgng',slug:'dgng',name:'DGNG',currency:'USD',status:'ONBOARDING',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
+ 'tenant-floes':{id:'tenant-floes',slug:'floes',name:'FLOES',currency:'USD',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
 } as const
 export function createTenantCommerceState(tenantId:string):CommerceRuntimeState{
- const tenant=tenants[tenantId as keyof typeof tenants]
+ const tenant=tenantDefinitions[tenantId as keyof typeof tenantDefinitions]
  if(!tenant)throw new Error('Unknown tenant')
  return{schemaVersion:3,commercial:{
   tenants:[structuredClone(tenant)],customers:[],identities:[],conversations:[],opportunities:[],activities:[],notes:[],tasks:[],escalations:[],

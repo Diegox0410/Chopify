@@ -61,6 +61,14 @@ function decodeFields(document) {
   return Object.fromEntries(Object.entries(document.fields || {}).map(([key, value]) => [key, value.stringValue || '']))
 }
 const safeLog = (stage, details = {}) => console.info(JSON.stringify({ service: 'whatsapp-live', stage, ...details }))
+export class LiveDependencyError extends Error {
+  constructor(code, message) { super(message); this.name = 'LiveDependencyError'; this.code = code }
+}
+export function escalationReason(error) {
+  if (error instanceof LiveDependencyError) return error.code
+  if (error instanceof Error && error.name === 'AbortError') return 'GANOBOT_TIMEOUT'
+  return 'GANOBOT_UNAVAILABLE'
+}
 export function metaErrorDetails(status, body) {
   const error = body && typeof body === 'object' ? body.error : null
   return {
@@ -119,29 +127,275 @@ function outboundId(inboundId) { return `out_${hash(inboundId)}` }
 function inboundId(providerId) { return `in_${hash(providerId)}` }
 export async function prepareReply(message) {
   const endpoint = process.env.GANOBOT_LIVE_URL
-  if (!endpoint) return { text: '¡Hola! Gracias por escribir a FLOES. Hemos recibido tu mensaje y un asesor continuará tu atención.', mode: 'HUMAN_FALLBACK' }
-  if (!endpoint.startsWith('https://')) throw new Error('GANOBOT_LIVE_URL must use HTTPS')
-  const response = await fetch(endpoint, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must('GANOBOT_LIVE_BEARER_TOKEN')}` }, body: JSON.stringify({ tenantId: 'tenant-floes', channel: 'WHATSAPP', providerMessageId: message.id, customer: { phone: message.from, name: message.name }, text: message.text }) })
-  if (!response.ok) throw new Error(`GanoBot live endpoint failed (${response.status})`)
-  const body = await response.json()
-  if (typeof body.reply !== 'string' || !body.reply.trim() || body.reply.length > 4000) throw new Error('Invalid GanoBot live reply')
-  return { text: body.reply.trim(), mode: 'GANOBOT_LIVE' }
-}
-export async function receive(message) {
-  const id = inboundId(message.id)
-  const inserted = await createDoc(id, { tenantId: 'tenant-floes', providerMessageId: message.id, phoneNumberId: message.phoneNumberId, from: message.from, text: message.text, name: message.name, receivedAt: message.receivedAt, status: 'RECEIVED' })
-  if (!inserted) return { duplicate: true, id }
-  const out = outboundId(message.id)
+  if (!endpoint || !process.env.GANOBOT_LIVE_BEARER_TOKEN) throw new LiveDependencyError('GANOBOT_NOT_CONFIGURED', 'GanoBot live integration is not configured')
+  if (!endpoint.startsWith('https://')) throw new LiveDependencyError('GANOBOT_INVALID_CONFIG', 'GanoBot live endpoint must use HTTPS')
+
+  safeLog('ganobot_request', { correlationId: message.id, tenantId: 'tenant-floes' })
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+
+  let response
   try {
-    const reply = await prepareReply(message)
-    await createDoc(out, { tenantId: 'tenant-floes', inboundId: id, to: message.from, text: reply.text, mode: reply.mode, status: 'PENDING', createdAt: now(), attempts: '0' })
-    await updateDoc(id, { status: 'QUEUED' })
-    return { duplicate: false, id, outboundId: out }
+    response = await fetch(endpoint, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        ...JSON_HEADERS,
+        Authorization: `Bearer ${process.env.GANOBOT_LIVE_BEARER_TOKEN}`,
+      },
+      body: JSON.stringify({
+        tenantId: 'tenant-floes',
+        channel: 'WHATSAPP',
+        providerMessageId: message.id,
+        customer: {
+          phone: message.from,
+          name: message.name,
+        },
+        text: message.text,
+      }),
+    })
   } catch (error) {
-    await updateDoc(id, { status: 'NEEDS_HUMAN', error: error instanceof Error ? error.message : 'GanoBot failed' })
-    return { duplicate: false, id, needsHuman: true }
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new LiveDependencyError('GANOBOT_TIMEOUT', 'GanoBot live request timed out')
+    }
+    throw new LiveDependencyError('GANOBOT_UNAVAILABLE', 'GanoBot live request failed')
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!response.ok) {
+    throw new LiveDependencyError('GANOBOT_HTTP_ERROR', `GanoBot live endpoint failed (${response.status})`)
+  }
+
+  const body = await response.json().catch(() => null)
+
+  if (!body || typeof body !== 'object') {
+    throw new LiveDependencyError('GANOBOT_INVALID_RESPONSE', 'Invalid GanoBot live response')
+  }
+
+  if (body.requiresHuman === true) {
+    const allowedReasons = new Set([
+      'CUSTOMER_REQUEST',
+      'COMPLAINT',
+      'PAYMENT_ISSUE',
+      'PRICING_EXCEPTION',
+      'STOCK_CONFLICT',
+      'RETURN_REQUEST',
+      'DELIVERY_ISSUE',
+      'UNKNOWN_PRODUCT',
+      'SYSTEM_ERROR',
+      'OTHER',
+    ])
+
+    const requestedReason =
+      typeof body.escalationReason === 'string'
+        ? body.escalationReason.trim().toUpperCase()
+        : ''
+
+    const reason = allowedReasons.has(requestedReason)
+      ? requestedReason
+      : 'OTHER'
+
+    safeLog('ganobot_result', {
+      correlationId: message.id,
+      tenantId: 'tenant-floes',
+      result: 'HUMAN_REQUESTED',
+      escalationReason: reason,
+    })
+
+    return {
+      requiresHuman: true,
+      escalationReason: reason,
+      mode: 'GANOBOT_LIVE',
+    }
+  }
+
+  if (
+    typeof body.reply !== 'string' ||
+    !body.reply.trim() ||
+    body.reply.length > 4000
+  ) {
+    throw new LiveDependencyError('GANOBOT_INVALID_RESPONSE', 'Invalid GanoBot live reply')
+  }
+
+  safeLog('ganobot_result', {
+    correlationId: message.id,
+    tenantId: 'tenant-floes',
+    result: 'VALID_REPLY',
+  })
+
+  return {
+    text: body.reply.trim(),
+    requiresHuman: false,
+    mode: 'GANOBOT_LIVE',
   }
 }
+
+export async function receive(message, dependencies = {}) {
+  const createDocument = dependencies.createDoc || createDoc
+  const updateDocument = dependencies.updateDoc || updateDoc
+  const prepareAutomationReply = dependencies.prepareReply || prepareReply
+
+  const id = inboundId(message.id)
+
+  safeLog('inbound_received', {
+    correlationId: message.id,
+    provider: 'META_WHATSAPP',
+  })
+
+  safeLog('tenant_resolved', {
+    correlationId: message.id,
+    tenantId: 'tenant-floes',
+  })
+
+  const inserted = await createDocument(id, {
+    tenantId: 'tenant-floes',
+    providerMessageId: message.id,
+    phoneNumberId: message.phoneNumberId,
+    from: message.from,
+    text: message.text,
+    name: message.name,
+    receivedAt: message.receivedAt,
+    status: 'RECEIVED',
+  })
+
+  if (!inserted) return { duplicate: true, id }
+
+  let decision
+
+  try {
+    decision = await prepareAutomationReply(message)
+  } catch (error) {
+    const technicalReason = escalationReason(error)
+
+    await updateDocument(id, {
+      status: 'NEEDS_HUMAN',
+      escalationReason: 'SYSTEM_ERROR',
+      technicalReason,
+      error: error instanceof Error
+        ? error.message.slice(0, 500)
+        : 'Automation failed',
+    })
+
+    safeLog('automation_decision', {
+      correlationId: message.id,
+      tenantId: 'tenant-floes',
+      decision: 'HUMAN',
+      escalationReason: 'SYSTEM_ERROR',
+      technicalReason,
+    })
+
+    return {
+      duplicate: false,
+      id,
+      needsHuman: true,
+      escalationReason: 'SYSTEM_ERROR',
+      technicalReason,
+    }
+  }
+
+  if (decision.requiresHuman === true) {
+    await updateDocument(id, {
+      status: 'NEEDS_HUMAN',
+      escalationReason: decision.escalationReason || 'OTHER',
+      technicalReason: '',
+      error: '',
+    })
+
+    safeLog('automation_decision', {
+      correlationId: message.id,
+      tenantId: 'tenant-floes',
+      decision: 'HUMAN',
+      escalationReason: decision.escalationReason || 'OTHER',
+    })
+
+    return {
+      duplicate: false,
+      id,
+      needsHuman: true,
+      escalationReason: decision.escalationReason || 'OTHER',
+    }
+  }
+
+  const out = outboundId(message.id)
+
+  try {
+    const created = await createDocument(out, {
+      tenantId: 'tenant-floes',
+      inboundId: id,
+      to: message.from,
+      text: decision.text,
+      mode: decision.mode,
+      status: 'PREPARED',
+      createdAt: now(),
+      attempts: '0',
+    })
+
+    if (!created) {
+      safeLog('outbound_persistence_duplicate', {
+        correlationId: message.id,
+        tenantId: 'tenant-floes',
+        outboundId: out,
+      })
+
+      return {
+        duplicate: false,
+        id,
+        outboundId: out,
+      }
+    }
+
+    await updateDocument(id, {
+      status: 'QUEUED',
+      escalationReason: '',
+      technicalReason: '',
+      error: '',
+    })
+
+    await updateDocument(out, {
+      status: 'PENDING',
+    })
+  } catch (error) {
+    await updateDocument(id, {
+      status: 'NEEDS_HUMAN',
+      escalationReason: 'SYSTEM_ERROR',
+      technicalReason: 'OUTBOUND_PERSISTENCE_ERROR',
+      error: error instanceof Error
+        ? error.message.slice(0, 500)
+        : 'Outbound persistence failed',
+    }).catch(() => {})
+
+    safeLog('automation_decision', {
+      correlationId: message.id,
+      tenantId: 'tenant-floes',
+      decision: 'HUMAN',
+      escalationReason: 'SYSTEM_ERROR',
+      technicalReason: 'OUTBOUND_PERSISTENCE_ERROR',
+    })
+
+    return {
+      duplicate: false,
+      id,
+      needsHuman: true,
+      escalationReason: 'SYSTEM_ERROR',
+      technicalReason: 'OUTBOUND_PERSISTENCE_ERROR',
+    }
+  }
+
+  safeLog('automation_decision', {
+    correlationId: message.id,
+    tenantId: 'tenant-floes',
+    decision: 'AUTO_REPLY',
+  })
+
+  return {
+    duplicate: false,
+    id,
+    outboundId: out,
+  }
+}
+
 export async function sendOutbound(id) {
   const item = await getDoc(id)
   if (!item || item.tenantId !== 'tenant-floes') return { status: 'NOT_FOUND' }
@@ -151,7 +405,7 @@ export async function sendOutbound(id) {
   if (!await createDoc(`claim_${hash(id)}`, { outboundId: id, claimedAt: now(), claimId: randomUUID() })) return { status: 'ALREADY_CLAIMED' }
   const attempt = Number(item.attempts || 0) + 1
   await updateDoc(id, { status: 'SENDING', attempts: String(attempt) })
-  safeLog('meta_send_started', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENDING', attempt })
+  safeLog('outbound_attempt', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENDING', attempt })
   try {
     const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(must('FLOES_WHATSAPP_PHONE_NUMBER_ID'))}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must('META_WHATSAPP_ACCESS_TOKEN')}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: item.text } }) })
     const body = await response.json().catch(() => ({}))
