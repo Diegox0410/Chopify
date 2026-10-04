@@ -38,6 +38,9 @@ export type CommerceGatewayOperation =
   | 'listOrders'
   | 'getOrderDetail'
   | 'listPaymentReviews'
+  | 'listCustomers'
+  | 'listOpportunities'
+  | 'listExceptions'
 
 export interface CommerceGatewayRequest {
   operation: CommerceGatewayOperation
@@ -233,6 +236,9 @@ export class CommerceGateway {
     return{...detail,customer:customerDetail?customer(customerDetail.customer):null}
    }
    case 'listPaymentReviews': return this.orders.paymentReviews(tenantId)
+   case 'listCustomers': return this.commercial.listCustomers(tenantId)
+   case 'listOpportunities': return this.commercial.listOpportunities(tenantId)
+   case 'listExceptions': return this.supervisor.snapshot(tenantId)
    case 'requestHumanEscalation':{
     const conversationId=requiredString(input.conversationId,'conversationId');const reason=requiredString(input.reason,'reason')
     const allowedReasons=new Set(['CUSTOMER_REQUEST','COMPLAINT','PAYMENT_ISSUE','PRICING_EXCEPTION','STOCK_CONFLICT','RETURN_REQUEST','DELIVERY_ISSUE','UNKNOWN_PRODUCT','SYSTEM_ERROR','OTHER'] as const)

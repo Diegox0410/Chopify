@@ -14,6 +14,7 @@ const allowed = new Set<CommerceGatewayOperation>([
   'listProducts', 'syncFloesCatalog', 'updateProduct', 'ownerDashboard', 'listOrders',
   'getOrderDetail', 'listPaymentReviews', 'approvePayment', 'rejectPaymentProof',
   'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered',
+  'listCustomers', 'listOpportunities', 'listExceptions',
 ])
 const mutations = new Set(['syncFloesCatalog', 'updateProduct', 'approvePayment', 'rejectPaymentProof', 'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered'])
 const json = (res: Response, status: number, body: unknown) => {
@@ -36,9 +37,10 @@ const whatsappConfigurationStatus = () => {
 }
 
 async function dashboard(tenantId: string) {
-  const [summary, orders] = await Promise.all([
+  const [summary, orders, opportunities] = await Promise.all([
     runtime.execute({ operation: 'ownerDashboard', tenantId, input: {} }),
     runtime.execute({ operation: 'listOrders', tenantId, input: {} }),
+    runtime.execute({ operation: 'listOpportunities', tenantId, input: {} }),
   ])
   const rows = orders as Array<{
     paymentStatus: string
@@ -73,6 +75,9 @@ async function dashboard(tenantId: string) {
           currency: currencies[0],
         }
       : null
+  const opportunityRows = opportunities as Array<{ status: string }>
+  const closedOpportunities = opportunityRows.filter(row => row.status === 'WON' || row.status === 'LOST')
+  const wonOpportunities = closedOpportunities.filter(row => row.status === 'WON').length
   return {
     tenantId,
     summary,
@@ -94,6 +99,8 @@ async function dashboard(tenantId: string) {
     profitCents: null,
     profitCurrency: null,
     margin: null,
+    conversion: closedOpportunities.length > 0 ? wonOpportunities / closedOpportunities.length : null,
+    conversionBasis: closedOpportunities.length,
   }
 }
 

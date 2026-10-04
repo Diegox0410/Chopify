@@ -46,6 +46,12 @@ test('dashboard uses the contractual managed revenue snapshot',()=>{
   assert.equal(source.includes('total + row.grandTotalCents'),false)
 })
 
+test('dashboard exposes conversion only when closed opportunities provide a basis',()=>{
+  const source=fs.readFileSync('api/admin.ts','utf8')
+  assert.equal(source.includes('closedOpportunities.length > 0'),true)
+  assert.equal(source.includes('conversionBasis: closedOpportunities.length'),true)
+})
+
 
 test('admin BFF propagates the authenticated Firebase owner into the commerce runtime', () => {
   const source = fs.readFileSync('api/admin.ts', 'utf8')

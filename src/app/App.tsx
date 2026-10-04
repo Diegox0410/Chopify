@@ -5,7 +5,7 @@ import { CatalogAdminPage } from '../features/catalog/CatalogAdminPage'
 import { StorefrontPage } from '../features/catalog/StorefrontPage'
 import { ConversationsPage } from '../features/conversations/ConversationsPage'
 import { OperationalEmptyPage } from '../features/shell/OperationalEmptyPage'
-import { IntegrationsPage, RealBusinessesPage, RealDashboardPage, RealFulfillmentPage, RealOrdersPage, RealPaymentReviewPage } from '../features/platform/AdminCenters'
+import { IntegrationsPage, RealBusinessesPage, RealCustomersPage, RealDashboardPage, RealExceptionsPage, RealFulfillmentPage, RealOpportunitiesPage, RealOrdersPage, RealPaymentReviewPage } from '../features/platform/AdminCenters'
 import { OwnerPanelPage } from '../features/owner/OwnerPanelPage'
 import { LoginPage } from '../auth/LoginPage'
 import { RequireAuth } from '../auth/RequireAuth'
@@ -18,7 +18,7 @@ import '../styles/h9-whatsapp.css'
 import '../styles/catalog.css'
 
 export function App(){
-  const reserved=new Set(['/products','/conversations','/businesses','/orders','/payments/review','/fulfillment','/integrations'])
+  const reserved=new Set(['/products','/conversations','/businesses','/customers','/opportunities','/orders','/payments/review','/fulfillment','/exceptions','/integrations'])
   const empty=navigation
     .flatMap(section=>section.items)
     .filter(item=>item.path!=='/'&&!reserved.has(item.path))
@@ -46,8 +46,11 @@ export function App(){
         <Route path="conversations" element={<ConversationsPage/>}/>
         <Route path="businesses" element={<RealBusinessesPage/>}/>
         <Route path="orders" element={<RealOrdersPage/>}/>
+        <Route path="customers" element={<RealCustomersPage/>}/>
+        <Route path="opportunities" element={<RealOpportunitiesPage/>}/>
         <Route path="payments/review" element={<RealPaymentReviewPage/>}/>
         <Route path="fulfillment" element={<RealFulfillmentPage/>}/>
+        <Route path="exceptions" element={<RealExceptionsPage/>}/>
         <Route path="integrations" element={<IntegrationsPage/>}/>
 
         {empty.map(item=>

@@ -1,1 +1,8 @@
 .h3-filter-panel{min-height:0!important;align-items:center}.h3-exception-list{overflow:hidden}.h3-exception-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:18px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border)}.h3-exception-row:last-child{border-bottom:0}.h3-exception-row strong,.h3-exception-row small{display:block}.h3-exception-row small{margin-top:4px;color:var(--muted)}.h3-exception-row .text-link{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}@media(max-width:640px){.h3-exception-row{grid-template-columns:1fr}.h3-exception-row .text-link{justify-self:start}}
+.admin-record-list{display:grid;gap:10px}
+.admin-record-list>article{border:1px solid var(--line);border-radius:9px;padding:14px;background:#fff;display:grid;gap:10px}
+.admin-record-list>article header,.admin-record-list>article footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.admin-record-list>article header strong,.admin-record-list>article header small{display:block}
+.admin-record-list>article header small{color:var(--muted);font-size:9px;margin-top:4px}
+.admin-record-list>article p{margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.admin-record-list>article footer{justify-content:flex-start;font-size:9px;color:var(--muted)}

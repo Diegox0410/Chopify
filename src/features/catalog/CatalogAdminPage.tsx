@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { CommerceProduct, CommerceProductVariant } from '../../domain/commerce'
+import type { CommerceProduct, CommerceProductVariant, ProductImage } from '../../domain/commerce'
 import type { FulfillmentMode } from '../../domain/inventory'
 import { adminCall } from '../../services/adminApi'
 import { tenantDefinitions, tenantIds } from '../../config/tenantRegistry.js'
+import { cleanImages, moveImage, productSlug } from './productEditor'
 
 const stores = tenantIds.map(id => [id, tenantDefinitions[id].name] as const)
 
@@ -17,7 +18,7 @@ interface VariantDraft {
   priceMode: VariantPriceMode
   price: string
   fulfillmentMode: FulfillmentMode | ''
-  images: string
+  images: ImageDraft[]
   status: CommerceProduct['status']
   visibility: CommerceProduct['visibility']
 }
@@ -25,18 +26,34 @@ interface VariantDraft {
 interface ProductDraft {
   name: string
   sku: string
+  slug: string
+  externalProductId: string
   category: string
   description: string
   commercialSummary: string
   currency: string
   price: string
   cost: string
-  images: string
+  percentage: string
+  percentageType: Exclude<CommerceProduct['percentageType'], null> | ''
+  images: ImageDraft[]
   fulfillmentMode: FulfillmentMode
   status: CommerceProduct['status']
   visibility: CommerceProduct['visibility']
   variants: VariantDraft[]
 }
+
+interface ImageDraft {
+  localId: string
+  url: string
+  alt: string
+}
+
+const blankImage = (image?: ProductImage): ImageDraft => ({
+  localId: crypto.randomUUID(),
+  url: image?.url ?? '',
+  alt: image?.alt ?? '',
+})
 
 const blankVariant = (): VariantDraft => ({
   localId: crypto.randomUUID(),
@@ -46,7 +63,7 @@ const blankVariant = (): VariantDraft => ({
   priceMode: 'INHERIT',
   price: '',
   fulfillmentMode: '',
-  images: '',
+  images: [],
   status: 'ACTIVE',
   visibility: 'VISIBLE',
 })
@@ -54,13 +71,17 @@ const blankVariant = (): VariantDraft => ({
 const emptyDraft = (): ProductDraft => ({
   name: '',
   sku: '',
+  slug: '',
+  externalProductId: '',
   category: '',
   description: '',
   commercialSummary: '',
   currency: '',
   price: '',
   cost: '',
-  images: '',
+  percentage: '',
+  percentageType: '',
+  images: [],
   fulfillmentMode: 'STOCK',
   status: 'ACTIVE',
   visibility: 'VISIBLE',
@@ -88,23 +109,30 @@ const money = (value: number, currency: string) =>
     maximumFractionDigits: 2,
   }).format(value / 100)
 
-const imageLines = (value: string) =>
-  value
-    .split(/\r?\n/)
-    .map(url => url.trim())
-    .filter(Boolean)
-    .map((url, index) => ({ url, alt: 'Imagen ' + (index + 1) }))
+const validExternalUrl = (value: string) => {
+  if (value.startsWith('/') && !value.startsWith('//')) return true
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
 
 const productToDraft = (product: CommerceProduct): ProductDraft => ({
   name: product.name,
   sku: product.sku,
+  slug: product.slug,
+  externalProductId: product.externalProductId ?? '',
   category: product.category,
   description: product.description,
   commercialSummary: product.commercialSummary,
   currency: product.currency,
   price: product.salePriceCents === null ? '' : String(product.salePriceCents / 100),
   cost: product.costCents === null ? '' : String(product.costCents / 100),
-  images: product.images.map(image => image.url).join('\n'),
+  percentage: product.percentage === null ? '' : String(product.percentage),
+  percentageType: product.percentageType ?? '',
+  images: product.images.map(image => blankImage(image)),
   fulfillmentMode: product.fulfillmentMode,
   status: product.status,
   visibility: product.visibility,
@@ -125,11 +153,44 @@ const productToDraft = (product: CommerceProduct): ProductDraft => ({
         ? ''
         : String(variant.salePriceCents / 100),
     fulfillmentMode: variant.fulfillmentMode ?? '',
-    images: variant.images.map(image => image.url).join('\n'),
+    images: variant.images.map(image => blankImage(image)),
     status: variant.status,
     visibility: variant.visibility,
   })),
 })
+
+function MediaEditor({ images, onChange, compact = false }: {
+  images: ImageDraft[]
+  onChange(images: ImageDraft[]): void
+  compact?: boolean
+}) {
+  const update = (localId: string, patch: Partial<ImageDraft>) =>
+    onChange(images.map(image => image.localId === localId ? { ...image, ...patch } : image))
+
+  return <div className={`media-manager${compact ? ' compact' : ''}`}>
+    <div className="media-list">
+      {images.length === 0 && <div className="media-placeholder"><span>Sin imágenes</span><small>Agrega una URL externa para comenzar.</small></div>}
+      {images.map((image, index) => <article className="media-row" key={image.localId}>
+        <div className="media-thumb">
+          {validExternalUrl(image.url.trim())
+            ? <img src={image.url.trim()} alt={image.alt || `Vista previa ${index + 1}`} />
+            : <span>{index === 0 ? 'Principal' : index + 1}</span>}
+        </div>
+        <div className="media-fields">
+          <label className="field"><span>URL</span><input type="url" value={image.url} placeholder="https://…" onChange={event => update(image.localId, { url: event.target.value })} /></label>
+          <label className="field"><span>Texto alternativo</span><input value={image.alt} placeholder="Describe la imagen" onChange={event => update(image.localId, { alt: event.target.value })} /></label>
+        </div>
+        <div className="media-actions">
+          <button type="button" className="secondary-button" disabled={index === 0} onClick={() => onChange(moveImage(images, index, -1))} aria-label="Mover imagen arriba">↑</button>
+          <button type="button" className="secondary-button" disabled={index === images.length - 1} onClick={() => onChange(moveImage(images, index, 1))} aria-label="Mover imagen abajo">↓</button>
+          <button type="button" className="secondary-button danger" onClick={() => onChange(images.filter(item => item.localId !== image.localId))}>Eliminar</button>
+        </div>
+        {index === 0 && <span className="primary-image-badge">Imagen principal</span>}
+      </article>)}
+    </div>
+    <button type="button" className="secondary-button media-add" onClick={() => onChange([...images, blankImage()])}>+ Agregar imagen</button>
+  </div>
+}
 
 export function CatalogAdminPage() {
   const [tenant, setTenant] = useState<string>('tenant-floes')
@@ -195,11 +256,20 @@ export function CatalogAdminPage() {
     }))
   }
 
+  const updateProductImages = (images: ImageDraft[]) => {
+    setDraft(current => ({ ...current, images }))
+  }
+
+  const updateVariantImages = (localId: string, images: ImageDraft[]) => {
+    updateVariant(localId, { images })
+  }
+
   const save = async () => {
     const selectedCurrency = draft.currency.trim().toUpperCase()
-    const slug = slugify(draft.name)
+    const slug = productSlug(draft.name, draft.slug, Boolean(editingProduct))
     const price = cents(draft.price)
     const cost = cents(draft.cost)
+    const percentage = draft.percentage.trim() === '' ? null : Number(draft.percentage)
 
     if (!draft.name.trim() || !draft.sku.trim()) {
       setError('Nombre y SKU son obligatorios.')
@@ -207,7 +277,7 @@ export function CatalogAdminPage() {
     }
 
     if (!slug) {
-      setError('El nombre debe permitir generar un identificador válido.')
+      setError(editingProduct ? 'El slug es obligatorio.' : 'El nombre debe permitir generar un slug válido.')
       return
     }
 
@@ -227,6 +297,24 @@ export function CatalogAdminPage() {
 
     if (price !== null && price <= 0) {
       setError('Cuando existe precio de venta debe ser mayor que cero.')
+      return
+    }
+
+    if (percentage !== null && (!Number.isFinite(percentage) || percentage < 0)) {
+      setError('El porcentaje debe ser un valor no negativo o quedar vacío.')
+      return
+    }
+
+    if ((percentage === null) !== (draft.percentageType === '')) {
+      setError('El porcentaje y su tipo deben configurarse juntos.')
+      return
+    }
+
+    const productImages = cleanImages(draft.images)
+    const allImageDrafts = [...draft.images, ...draft.variants.flatMap(variant => variant.images)]
+    const invalidImage = allImageDrafts.find(image => image.url.trim() && !validExternalUrl(image.url.trim()))
+    if (invalidImage) {
+      setError('Todas las imágenes deben usar una URL http o https válida.')
       return
     }
 
@@ -277,7 +365,7 @@ export function CatalogAdminPage() {
         color: variant.color.trim() || null,
         status: variant.status,
         visibility: variant.visibility,
-        images: imageLines(variant.images),
+        images: cleanImages(variant.images),
         stock,
         ...(variant.fulfillmentMode
           ? { fulfillmentMode: variant.fulfillmentMode }
@@ -292,6 +380,7 @@ export function CatalogAdminPage() {
           tenantId: tenant,
           sku: draft.sku.trim(),
           slug,
+          externalProductId: draft.externalProductId.trim() || undefined,
           name: draft.name.trim(),
           description: draft.description.trim(),
           commercialSummary: draft.commercialSummary.trim(),
@@ -301,9 +390,11 @@ export function CatalogAdminPage() {
           fulfillmentMode: draft.fulfillmentMode,
           pricingStatus: price === null ? 'PENDING' : 'READY',
           costCents: cost,
+          percentage,
+          percentageType: draft.percentageType || null,
           salePriceCents: price,
           currency: selectedCurrency,
-          images: imageLines(draft.images),
+          images: productImages,
           variants,
         }
       : {
@@ -311,6 +402,9 @@ export function CatalogAdminPage() {
           tenantId: tenant,
           sku: draft.sku.trim(),
           slug,
+          ...(draft.externalProductId.trim()
+            ? { externalProductId: draft.externalProductId.trim() }
+            : {}),
           name: draft.name.trim(),
           description: draft.description.trim(),
           commercialSummary: draft.commercialSummary.trim(),
@@ -320,11 +414,11 @@ export function CatalogAdminPage() {
           fulfillmentMode: draft.fulfillmentMode,
           pricingStatus: price === null ? 'PENDING' : 'READY',
           costCents: cost,
-          percentage: null,
-          percentageType: null,
+          percentage,
+          percentageType: draft.percentageType || null,
           salePriceCents: price,
           currency: selectedCurrency,
-          images: imageLines(draft.images),
+          images: productImages,
           variants,
         }
 
@@ -440,6 +534,29 @@ export function CatalogAdminPage() {
             </label>
 
             <label className="field">
+              <span>Slug *</span>
+              <input
+                value={draft.slug}
+                onChange={event => setDraft(current => ({ ...current, slug: slugify(event.target.value) }))}
+                onBlur={() => {
+                  if (!editingProduct && !draft.slug.trim()) {
+                    setDraft(current => ({ ...current, slug: slugify(current.name) }))
+                  }
+                }}
+                placeholder={editingProduct ? 'slug-del-producto' : 'Se genera desde el nombre'}
+              />
+            </label>
+
+            <label className="field">
+              <span>ID externo</span>
+              <input
+                value={draft.externalProductId}
+                onChange={event => setDraft(current => ({ ...current, externalProductId: event.target.value }))}
+                placeholder="Opcional"
+              />
+            </label>
+
+            <label className="field">
               <span>Categoría</span>
               <input
                 value={draft.category}
@@ -546,7 +663,7 @@ export function CatalogAdminPage() {
                     currency: event.target.value.toUpperCase(),
                   }))
                 }
-                placeholder="USD"
+                placeholder="ISO"
               />
             </label>
 
@@ -570,6 +687,28 @@ export function CatalogAdminPage() {
               />
             </label>
 
+            <label className="field">
+              <span>Porcentaje</span>
+              <input
+                inputMode="decimal"
+                value={draft.percentage}
+                onChange={event => setDraft(current => ({ ...current, percentage: event.target.value }))}
+                placeholder="Vacío = no configurado"
+              />
+            </label>
+
+            <label className="field">
+              <span>Tipo de porcentaje</span>
+              <select
+                value={draft.percentageType}
+                onChange={event => setDraft(current => ({ ...current, percentageType: event.target.value as ProductDraft['percentageType'] }))}
+              >
+                <option value="">No configurado</option>
+                <option value="MARKUP_ON_COST">Markup sobre costo</option>
+                <option value="GROSS_MARGIN_ON_SALE_PRICE">Margen bruto sobre venta</option>
+              </select>
+            </label>
+
             <div className="product-data-rule">
               <strong>Regla de datos</strong>
               <span>
@@ -585,34 +724,13 @@ export function CatalogAdminPage() {
               <span>03</span>
               <div>
                 <strong>Imágenes</strong>
-                <small>Temporalmente por URL. La carga de archivos se habilita en C2-B.</small>
+                <small>La primera posición se usa como imagen principal.</small>
               </div>
             </div>
           </div>
 
-          <div className="media-url-editor">
-            <label className="field">
-              <span>URLs del producto · una por línea</span>
-              <textarea
-                value={draft.images}
-                onChange={event => setDraft(current => ({ ...current, images: event.target.value }))}
-                placeholder={'https://...\nhttps://...'}
-              />
-            </label>
-
-            <div className="media-preview">
-              {imageLines(draft.images).length === 0 ? (
-                <div className="media-placeholder">
-                  <span>Sin imágenes</span>
-                  <small>Firebase Storage se conecta en C2-B.</small>
-                </div>
-              ) : (
-                imageLines(draft.images).slice(0, 5).map(image => (
-                  <img key={image.url} src={image.url} alt="" />
-                ))
-              )}
-            </div>
-          </div>
+          <p className="media-note">Las imágenes se almacenan mediante URL externa. La carga directa de archivos podrá habilitarse posteriormente.</p>
+          <MediaEditor images={draft.images} onChange={updateProductImages} />
         </div>
 
         <div className="product-form-section">
@@ -773,15 +891,10 @@ export function CatalogAdminPage() {
                       </select>
                     </label>
 
-                    <label className="field variant-images">
-                      <span>URLs de imágenes · una por línea</span>
-                      <textarea
-                        value={variant.images}
-                        onChange={event =>
-                          updateVariant(variant.localId, { images: event.target.value })
-                        }
-                      />
-                    </label>
+                    <div className="variant-images">
+                      <span className="field-label">Imágenes de la variante</span>
+                      <MediaEditor compact images={variant.images} onChange={images => updateVariantImages(variant.localId, images)} />
+                    </div>
                   </div>
                 </article>
               ))}
