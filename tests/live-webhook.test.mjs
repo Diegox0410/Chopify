@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
-import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply, escalationReason, receive, LiveDependencyError } from '../api/_lib/live.js'
-import { validOperationsToken } from '../api/conversations.js'
+import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply, escalationReason, receive, sendOutbound, LiveDependencyError } from '../api/_lib/live.js'
+import { operationsAllowedTenants, validOperationsToken } from '../api/conversations.js'
+import { resolveWhatsAppChannel } from '../api/_lib/channelRegistry.js'
 test('Meta HMAC validates exact raw bytes and rejects tampering', () => {
   const raw = Buffer.from('{"entry":[]}')
   const sig = 'sha256=' + createHmac('sha256', 'private').update(raw).digest('hex')
@@ -21,7 +22,7 @@ test('only tenant phone number text messages pass extraction', () => {
   assert.equal(found.length, 1)
   assert.equal(found[0].from, '593962701442')
 })
-test('live reply forwards the synchronized bearer and FLOES identity', async () => {
+test('live reply forwards the synchronized bearer and resolved tenant identity', async () => {
   const previousUrl = process.env.GANOBOT_LIVE_URL
   const previousToken = process.env.GANOBOT_LIVE_BEARER_TOKEN
   const previousFetch = globalThis.fetch
@@ -33,11 +34,12 @@ test('live reply forwards the synchronized bearer and FLOES identity', async () 
       assert.equal(init.method, 'POST')
       assert.equal(init.headers.Authorization, 'Bearer private-live-token')
       assert.deepEqual(JSON.parse(init.body), {
-        tenantId: 'tenant-floes',
+        tenantId: 'tenant-mg',
         channel: 'WHATSAPP',
         providerMessageId: 'wamid.123',
         customer: { phone: '593962701442', name: 'Cliente' },
         text: '¿Qué productos tienen disponibles?',
+        correlationId: 'corr-123',
       })
       return new Response(JSON.stringify({ reply: 'Catálogo FLOES' }), {
         status: 200,
@@ -49,6 +51,8 @@ test('live reply forwards the synchronized bearer and FLOES identity', async () 
       from: '593962701442',
       name: 'Cliente',
       text: '¿Qué productos tienen disponibles?',
+      tenantId: 'tenant-mg',
+      correlationId: 'corr-123',
     }), { text: 'Catálogo FLOES', requiresHuman: false, mode: 'GANOBOT_LIVE' })
   } finally {
     globalThis.fetch = previousFetch
@@ -56,6 +60,46 @@ test('live reply forwards the synchronized bearer and FLOES identity', async () 
     else process.env.GANOBOT_LIVE_URL = previousUrl
     if (previousToken === undefined) delete process.env.GANOBOT_LIVE_BEARER_TOKEN
     else process.env.GANOBOT_LIVE_BEARER_TOKEN = previousToken
+  }
+})
+
+test('phone_number_id resolves a configured tenant and unknown channels are rejected',()=>{
+  const previous=process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON
+  process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON=JSON.stringify([
+    {tenantId:'tenant-floes',phoneNumberId:'phone-a',accessTokenEnv:'TOKEN_A'},
+    {tenantId:'tenant-mg',phoneNumberId:'phone-b',accessTokenEnv:'TOKEN_B'},
+  ])
+  try{
+    assert.equal(resolveWhatsAppChannel('phone-b')?.tenantId,'tenant-mg')
+    assert.equal(resolveWhatsAppChannel('phone-b')?.accessTokenEnv,'TOKEN_B')
+    assert.equal(resolveWhatsAppChannel('unknown'),null)
+  }finally{
+    if(previous===undefined)delete process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON
+    else process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON=previous
+  }
+})
+
+test('outbound uses the persisted tenant channel and its token reference',async()=>{
+  const previousToken=process.env.TOKEN_MG_TEST
+  process.env.TOKEN_MG_TEST='token-mg'
+  const updates=[]
+  try{
+    const result=await sendOutbound('out-mg',{
+      getDoc:async()=>({tenantId:'tenant-mg',phoneNumberId:'phone-mg',status:'PENDING',attempts:'0',to:'593999999999',text:'Hola',inboundId:'in-mg'}),
+      createDoc:async()=>true,
+      updateDoc:async(id,data)=>updates.push({id,data}),
+      resolveChannel:id=>id==='phone-mg'?{tenantId:'tenant-mg',externalChannelId:'phone-mg',accessTokenEnv:'TOKEN_MG_TEST'}:null,
+      fetch:async(url,init)=>{
+        assert.match(url,/\/phone-mg\/messages$/)
+        assert.equal(init.headers.Authorization,'Bearer token-mg')
+        return new Response(JSON.stringify({messages:[{id:'wamid.out.mg'}]}),{status:200})
+      },
+    })
+    assert.deepEqual(result,{status:'SENT',providerMessageId:'wamid.out.mg'})
+    assert.equal(updates.at(-1).data.status,'SENT')
+  }finally{
+    if(previousToken===undefined)delete process.env.TOKEN_MG_TEST
+    else process.env.TOKEN_MG_TEST=previousToken
   }
 })
 
@@ -172,6 +216,12 @@ test('conversation reads require the exact operations bearer', () => {
   assert.equal(validOperationsToken('', 'operations-secret'), false)
   assert.equal(validOperationsToken('Bearer operations-secret', ''), false)
 })
+test('conversation Operations access is explicitly tenant scoped',()=>{
+  const previous=process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS
+  delete process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS
+  try{assert.deepEqual([...operationsAllowedTenants()],['tenant-floes'])}
+  finally{if(previous!==undefined)process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS=previous}
+})
 
 
 test('receive queues exactly one outbound for an automatic reply', async () => {
@@ -184,6 +234,7 @@ test('receive queues exactly one outbound for an automatic reply', async () => {
     text: 'Hola',
     name: 'Cliente',
     phoneNumberId: 'phone-floes',
+    tenantId: 'tenant-floes',
     receivedAt: new Date().toISOString(),
   }, {
     createDoc: async (id, data) => {
@@ -245,6 +296,7 @@ test('receive explicit HUMAN decision creates no outbound', async () => {
     name: 'Cliente',
     text: 'Quiero una persona',
     phoneNumberId: 'FLOES',
+    tenantId: 'tenant-floes',
     receivedAt: '2026-10-04T03:00:00.000Z',
   }, {
     createDoc: async (id, data) => {
@@ -280,6 +332,7 @@ test('duplicate inbound stops before GanoBot and creates no outbound', async () 
     name: 'Cliente',
     text: 'Hola otra vez',
     phoneNumberId: 'FLOES',
+    tenantId: 'tenant-floes',
     receivedAt: '2026-10-04T03:00:00.000Z',
   }, {
     createDoc: async () => {
@@ -315,6 +368,7 @@ test('GanoBot failure becomes SYSTEM_ERROR with its technical reason and no outb
     name: 'Cliente',
     text: 'Hola',
     phoneNumberId: 'FLOES',
+    tenantId: 'tenant-floes',
     receivedAt: '2026-10-04T03:00:00.000Z',
   }, {
     createDoc: async (id, data) => {
@@ -352,6 +406,7 @@ test('outbound persistence failure is never mislabeled as GanoBot unavailable', 
     name: 'Cliente',
     text: 'Hola',
     phoneNumberId: 'FLOES',
+    tenantId: 'tenant-floes',
     receivedAt: '2026-10-04T03:00:00.000Z',
   }, {
     createDoc: async () => {
@@ -397,6 +452,7 @@ test('inbound queue persistence failure never leaves a sendable outbound', async
     text: 'Hola',
     name: 'Cliente',
     phoneNumberId: 'phone-floes',
+    tenantId: 'tenant-floes',
     receivedAt: new Date().toISOString(),
   }, {
     createDoc: async (id, data) => {

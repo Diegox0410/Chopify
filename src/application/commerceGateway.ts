@@ -117,7 +117,9 @@ export class CommerceGateway {
    case 'updateProduct':{
     const raw=input.product
     if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('product is required')
-    const candidate={...(raw as CommerceProduct),tenantId}
+    const productInput=raw as Partial<CommerceProduct>
+    const existing=typeof productInput.id==='string'?await this.commerce.getProduct(tenantId,productInput.id):null
+    const candidate={...(existing??{}),...productInput,tenantId} as CommerceProduct
     if(!candidate.id||!candidate.name||!candidate.sku||!candidate.slug)throw new Error('Product id, name, sku and slug are required')
     await this.commerce.upsertProducts(tenantId,[candidate])
     return candidate
@@ -169,19 +171,20 @@ export class CommerceGateway {
    case 'createOpportunity':{
     const customerId=requiredString(input.customerId,'customerId')
     const ids=Array.isArray(input.productIds)?input.productIds.filter((v):v is string=>typeof v==='string'):[]
-    let cents=0;let currency='USD'
-    if(ids[0]){const item=await this.commerce.getProduct(tenantId,ids[0]);if(item){cents=item.salePriceCents??0;currency=item.currency}}
+    let cents: number;let currency: string
+    if(ids[0]){
+     const item=await this.commerce.getProduct(tenantId,ids[0]);if(!item)throw new Error('Product not found in tenant')
+     if(item.salePriceCents===null)throw new Error('Product pricing is pending')
+     cents=item.salePriceCents;currency=item.currency
+    }else{
+     if(typeof input.estimatedValueCents!=='number'||!Number.isInteger(input.estimatedValueCents)||input.estimatedValueCents<0)throw new Error('estimatedValueCents must be explicit')
+     cents=input.estimatedValueCents;currency=requiredString(input.currency,'currency').toUpperCase()
+    }
     const opportunity=await this.commercial.createOpportunity({tenantId,customerId,intent:'PURCHASE_INTENT',estimatedValueCents:cents,currency,acquisitionSource:optionalString(input.source),conversionChannel:optionalString(input.source),assignedTo:'ganobot'})
     return{opportunityId:opportunity.id,customerId:opportunity.customerId,status:'new'}
    }
    case 'createOrderDraft':{
     const customerId=requiredString(input.customerId,'customerId');let opportunityId=optionalString(input.opportunityId)
-    if(!opportunityId){const o=await this.commercial.createOpportunity({tenantId,customerId,intent:'PURCHASE_INTENT',estimatedValueCents:0,currency:'USD',assignedTo:'ganobot'});opportunityId=o.id}
-    let opportunity=await this.commercial.getOpportunity(tenantId,opportunityId)
-    if(!opportunity)throw new Error('Opportunity not found in tenant')
-    if(opportunity.status==='OPEN')opportunity=await this.commercial.qualifyOpportunity(tenantId,opportunity.id)
-    if(opportunity.status==='QUALIFIED')opportunity=await this.commercial.startOpportunityCart(tenantId,opportunity.id)
-    if(opportunity.status==='CART_STARTED')opportunity=await this.commercial.markOpportunityOrderCreated(tenantId,opportunity.id)
     const lines=Array.isArray(input.lines)?input.lines:[]
     const items=lines.map(line=>{
      if(typeof line!=='object'||!line)throw new Error('Invalid order line')
@@ -189,6 +192,20 @@ export class CommerceGateway {
      if(quantity<1)throw new Error('quantity must be positive')
      return{productId:requiredString(record.productId,'productId'),variantId:optionalString(record.variantId),quantity}
     })
+    if(!opportunityId){
+     if(items.length===0)throw new Error('Order lines are required')
+     const first=await this.commerce.getProduct(tenantId,items[0].productId,items[0].variantId)
+     if(!first)throw new Error('Product not found in tenant')
+     const firstVariant=items[0].variantId?first.variants.find(item=>item.id===items[0].variantId):undefined
+     const firstPrice=effectiveSalePrice(first,firstVariant)
+     if(firstPrice===null)throw new Error('Product pricing is pending')
+     const o=await this.commercial.createOpportunity({tenantId,customerId,intent:'PURCHASE_INTENT',estimatedValueCents:firstPrice*items[0].quantity,currency:first.currency,assignedTo:'ganobot'});opportunityId=o.id
+    }
+    let opportunity=await this.commercial.getOpportunity(tenantId,opportunityId)
+    if(!opportunity)throw new Error('Opportunity not found in tenant')
+    if(opportunity.status==='OPEN')opportunity=await this.commercial.qualifyOpportunity(tenantId,opportunity.id)
+    if(opportunity.status==='QUALIFIED')opportunity=await this.commercial.startOpportunityCart(tenantId,opportunity.id)
+    if(opportunity.status==='CART_STARTED')opportunity=await this.commercial.markOpportunityOrderCreated(tenantId,opportunity.id)
     const order=await this.orders.createOrderFromOpportunity({tenantId,opportunityId:opportunity.id,items,managed:true,managedBy:'AUTOMATION',idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??opportunity.id}:createOrderDraft`,actor:actor(tenantId)})
     return{orderId:order.id,status:'draft',customerId:order.customerId,total:money(order.grandTotalCents,order.currency)}
    }

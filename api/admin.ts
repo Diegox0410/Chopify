@@ -2,6 +2,7 @@ import type { CommerceGatewayOperation } from '../src/application/commerceGatewa
 import { PersistentCommerceRuntime, tenantDefinitions } from '../src/application/commerceRuntime.js'
 import { FirestoreCommerceStateStore } from '../src/infrastructure/firestoreCommerceStateStore.js'
 import { authorizePlatformOwner } from './_lib/firebaseAuth.js'
+import { configuredWhatsAppTenants } from './_lib/channelRegistry.js'
 
 interface Request { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown }
 interface Response { statusCode: number; setHeader(name: string, value: string): void; end(body?: string): void }
@@ -29,6 +30,10 @@ const configured = (names: readonly string[]) =>
   names.every(name => Boolean(process.env[name]))
     ? 'CONFIGURED'
     : 'NOT_CONFIGURED'
+const whatsappConfigurationStatus = () => {
+  try { return configuredWhatsAppTenants().length > 0 ? 'CONFIGURED' : 'NOT_CONFIGURED' }
+  catch { return 'ERROR' }
+}
 
 async function dashboard(tenantId: string) {
   const [summary, orders] = await Promise.all([
@@ -40,9 +45,8 @@ async function dashboard(tenantId: string) {
     fulfillmentStatus: string
     grandTotalCents: number
     currency?: string
-    managedSnapshot?: { managed: boolean }
+    managedSnapshot?: { managed: boolean; managedRevenueBaseCents: number }
   }>
-  const totals = summary as { managedRevenueBaseCents?: number }
 
   const managedPaidRows = rows.filter(row =>
     row.paymentStatus === 'PAID' &&
@@ -58,7 +62,7 @@ async function dashboard(tenantId: string) {
       currency,
       managedPaidRows
         .filter(row => row.currency === currency)
-        .reduce((total, row) => total + row.grandTotalCents, 0),
+        .reduce((total, row) => total + (row.managedSnapshot?.managedRevenueBaseCents ?? 0), 0),
     ])
   )
 
@@ -78,11 +82,7 @@ async function dashboard(tenantId: string) {
     ready: rows.filter(row => row.fulfillmentStatus === 'READY').length,
     dispatched: rows.filter(row => row.fulfillmentStatus === 'DISPATCHED').length,
     delivered: rows.filter(row => row.fulfillmentStatus === 'DELIVERED').length,
-    managedRevenueCents: managedRevenue?.cents ?? (
-      rows.length === 0 && totals.managedRevenueBaseCents === 0
-        ? 0
-        : null
-    ),
+    managedRevenueCents: managedRevenue?.cents ?? null,
     managedRevenueCurrency: managedRevenue?.currency ?? null,
     revenueByCurrency,
     currencyStatus:
@@ -108,7 +108,7 @@ export default async function handler(req: Request, res: Response) {
   if (body.operation === 'integrationStatus') return json(res, 200, { ok: true, data: {
     firebase: configured(['CHOPIFY_FIREBASE_PROJECT_ID', 'CHOPIFY_PLATFORM_OWNER_UID', 'FIREBASE_SERVICE_ACCOUNT_JSON']),
     commerce: configured(['CHOPIFY_COMMERCE_API_TOKEN']),
-    whatsapp: configured(['META_WHATSAPP_ACCESS_TOKEN', 'FLOES_WHATSAPP_PHONE_NUMBER_ID']),
+    whatsapp: whatsappConfigurationStatus(),
     ganobot: configured(['GANOBOT_LIVE_URL', 'GANOBOT_LIVE_BEARER_TOKEN']),
     storefront: 'UNKNOWN',
   } })
@@ -134,10 +134,10 @@ export default async function handler(req: Request, res: Response) {
         role: 'PLATFORM_OWNER',
       },
     })
-    console.info(JSON.stringify({ service: 'admin', stage: mutations.has(body.operation) ? 'mutation_completed' : 'read_completed', actorUid: auth.identity.uid, tenantId: body.tenantId, operation: body.operation }))
+    console.info(JSON.stringify({ service: 'admin', stage: mutations.has(body.operation) ? 'mutation_completed' : 'read_completed', actorRole: 'PLATFORM_OWNER', tenantId: body.tenantId, operation: body.operation }))
     return json(res, 200, { ok: true, data })
   } catch (error) {
-    console.error(JSON.stringify({ service: 'admin', stage: 'operation_failed', actorUid: auth.identity.uid, tenantId: body.tenantId, operation: body.operation, message: error instanceof Error ? error.message : 'unknown' }))
+    console.error(JSON.stringify({ service: 'admin', stage: 'operation_failed', actorRole: 'PLATFORM_OWNER', tenantId: body.tenantId, operation: body.operation, message: error instanceof Error ? error.message : 'unknown' }))
     return json(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Administrative operation failed' })
   }
 }

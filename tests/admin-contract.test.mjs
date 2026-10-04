@@ -22,30 +22,28 @@ test('admin dashboard exposes currency-aware revenue contract', () => {
   assert.equal(source.includes("'MIXED'"), true)
 })
 
-test('Product Center does not create new products in COP', () => {
+test('Product Center requires an explicit product currency', () => {
   const source = fs.readFileSync(
     'src/features/catalog/CatalogAdminPage.tsx',
     'utf8',
   )
 
   assert.equal(source.includes("currency: 'COP'"), false)
-  assert.equal(source.includes('currency: storeCurrencies[tenant]'), true)
+  assert.equal(source.includes('storeCurrencies'), false)
+  assert.equal(source.includes('currency: selectedCurrency'), true)
+  assert.equal(source.includes('Moneda ISO (obligatoria)'), true)
 })
 
-test('formal tenant registry declares USD without rewriting stored records', () => {
-  const source = fs.readFileSync(
-    'src/application/commerceRuntime.ts',
-    'utf8',
-  )
+test('formal tenant registry does not infer currency', () => {
+  const source = fs.readFileSync('src/config/tenantRegistry.js', 'utf8')
+  for (const tenant of ['tenant-floes', 'tenant-mg', 'tenant-dgng']) assert.equal(source.includes(`'${tenant}'`), true)
+  assert.equal(source.includes('currency:'), false)
+})
 
-  for (const tenant of ['tenant-floes', 'tenant-mg', 'tenant-dgng']) {
-    const definition = source
-      .split('\n')
-      .find(line => line.includes(`'${tenant}'`))
-
-    assert.ok(definition)
-    assert.equal(definition.includes("currency:'USD'"), true)
-  }
+test('dashboard uses the contractual managed revenue snapshot',()=>{
+  const source=fs.readFileSync('api/admin.ts','utf8')
+  assert.equal(source.includes('managedSnapshot?.managedRevenueBaseCents'),true)
+  assert.equal(source.includes('total + row.grandTotalCents'),false)
 })
 
 

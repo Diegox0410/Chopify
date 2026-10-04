@@ -5,10 +5,10 @@ import { generateKeyPairSync, sign } from 'node:crypto'
 import { authorizePlatformOwner, resetFirebaseAuthCacheForTests } from '../api/_lib/firebaseAuth.js'
 
 const encoded=value=>Buffer.from(JSON.stringify(value)).toString('base64url')
-const token=(privateKey,uid)=>{
+const token=(privateKey,uid,expiresIn=300)=>{
   const now=Math.floor(Date.now()/1000)
   const header=encoded({alg:'RS256',kid:'test-key',typ:'JWT'})
-  const payload=encoded({aud:'test-project',iss:'https://securetoken.google.com/test-project',sub:uid,iat:now-5,exp:now+300})
+  const payload=encoded({aud:'test-project',iss:'https://securetoken.google.com/test-project',sub:uid,iat:now-5,exp:now+expiresIn})
   const data=`${header}.${payload}`
   return`${data}.${sign('RSA-SHA256',Buffer.from(data),privateKey).toString('base64url')}`
 }
@@ -26,6 +26,8 @@ test('Platform auth distinguishes missing token, unauthorized Firebase user and 
 
   try{
     assert.deepEqual(await authorizePlatformOwner({headers:{}}),{ok:false,status:401,error:'Unauthorized'})
+    assert.deepEqual(await authorizePlatformOwner({headers:{authorization:'Bearer invalid'}}),{ok:false,status:401,error:'Unauthorized'})
+    assert.deepEqual(await authorizePlatformOwner({headers:{authorization:`Bearer ${token(privateKey,'owner-uid',-1)}`}}),{ok:false,status:401,error:'Unauthorized'})
     assert.deepEqual(await authorizePlatformOwner({headers:{authorization:`Bearer ${token(privateKey,'other-uid')}`}}),{ok:false,status:403,error:'Forbidden'})
     const owner=await authorizePlatformOwner({headers:{authorization:`Bearer ${token(privateKey,'owner-uid')}`}})
     assert.equal(owner.ok,true)
@@ -35,5 +37,16 @@ test('Platform auth distinguishes missing token, unauthorized Firebase user and 
     if(previousProject===undefined)delete process.env.CHOPIFY_FIREBASE_PROJECT_ID;else process.env.CHOPIFY_FIREBASE_PROJECT_ID=previousProject
     if(previousOwner===undefined)delete process.env.CHOPIFY_PLATFORM_OWNER_UID;else process.env.CHOPIFY_PLATFORM_OWNER_UID=previousOwner
     resetFirebaseAuthCacheForTests()
+  }
+})
+
+test('Platform auth reports missing server configuration safely',async()=>{
+  const previousProject=process.env.CHOPIFY_FIREBASE_PROJECT_ID
+  delete process.env.CHOPIFY_FIREBASE_PROJECT_ID
+  try{
+    const syntactic=`${encoded({alg:'RS256',kid:'key'})}.${encoded({})}.${Buffer.from('signature').toString('base64url')}`
+    assert.deepEqual(await authorizePlatformOwner({headers:{authorization:`Bearer ${syntactic}`}}),{ok:false,status:503,error:'Authentication service not configured'})
+  }finally{
+    if(previousProject!==undefined)process.env.CHOPIFY_FIREBASE_PROJECT_ID=previousProject
   }
 })

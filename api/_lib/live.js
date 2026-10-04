@@ -1,4 +1,6 @@
 import { createHash, createHmac, createSign, randomUUID, timingSafeEqual } from 'node:crypto'
+import { isKnownTenant } from '../../src/config/tenantRegistry.js'
+import { resolveWhatsAppChannel } from './channelRegistry.js'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v23.0'
@@ -17,11 +19,12 @@ export function verifyMetaSignature(raw, header, secret) {
 export function verifyChallenge(query, expected) {
   return query?.['hub.mode'] === 'subscribe' && query?.['hub.verify_token'] === expected && typeof query?.['hub.challenge'] === 'string' ? query['hub.challenge'] : null
 }
-export function extractMessages(payload, phoneNumberId) {
+export function extractMessages(payload, expectedPhoneNumberId) {
   if (payload?.object !== 'whatsapp_business_account') return []
   const result = []
   for (const entry of payload.entry || []) for (const change of entry.changes || []) {
-    if (change.field !== 'messages' || change.value?.metadata?.phone_number_id !== phoneNumberId) continue
+    const phoneNumberId = change.value?.metadata?.phone_number_id
+    if (change.field !== 'messages' || typeof phoneNumberId !== 'string' || (expectedPhoneNumberId && phoneNumberId !== expectedPhoneNumberId)) continue
     for (const message of change.value.messages || []) {
       if (!message.id || !message.from) continue
       const from = String(message.from).replace(/\D/g, '')
@@ -117,11 +120,21 @@ export async function listPendingOutbox(limit = 20) {
   const rows = await response.json()
   return rows.filter(row => row.document?.name?.split('/').at(-1).startsWith('out_')).map(row => ({ id: row.document.name.split('/').at(-1), ...decodeFields(row.document) }))
 }
-export async function listLiveDocuments(limit = 200) {
-  const response = await firestore(`?pageSize=${Math.min(limit, 500)}`)
-  if (!response.ok) throw new Error(`Firestore list failed (${response.status})`)
-  const body = await response.json()
-  return (body.documents || []).map(document => ({ id: document.name.split('/').at(-1), ...decodeFields(document) }))
+export async function listLiveDocuments(tenantId, limit = 200) {
+  if (!isKnownTenant(tenantId)) throw new Error('Unknown tenant')
+  const projectId = encodeURIComponent(serviceAccount().project_id)
+  const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await accessToken()}`, ...JSON_HEADERS },
+    body: JSON.stringify({ structuredQuery: {
+      from: [{ collectionId: COLLECTION }],
+      where: { fieldFilter: { field: { fieldPath: 'tenantId' }, op: 'EQUAL', value: { stringValue: tenantId } } },
+      limit: Math.min(limit, 500),
+    } }),
+  })
+  if (!response.ok) throw new Error(`Firestore query failed (${response.status})`)
+  const rows = await response.json()
+  return rows.filter(row => row.document).map(row => ({ id: row.document.name.split('/').at(-1), ...decodeFields(row.document) }))
 }
 function outboundId(inboundId) { return `out_${hash(inboundId)}` }
 function inboundId(providerId) { return `in_${hash(providerId)}` }
@@ -130,7 +143,7 @@ export async function prepareReply(message) {
   if (!endpoint || !process.env.GANOBOT_LIVE_BEARER_TOKEN) throw new LiveDependencyError('GANOBOT_NOT_CONFIGURED', 'GanoBot live integration is not configured')
   if (!endpoint.startsWith('https://')) throw new LiveDependencyError('GANOBOT_INVALID_CONFIG', 'GanoBot live endpoint must use HTTPS')
 
-  safeLog('ganobot_request', { correlationId: message.id, tenantId: 'tenant-floes' })
+  safeLog('ganobot_request', { correlationId: message.correlationId, tenantId: message.tenantId })
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
@@ -145,7 +158,7 @@ export async function prepareReply(message) {
         Authorization: `Bearer ${process.env.GANOBOT_LIVE_BEARER_TOKEN}`,
       },
       body: JSON.stringify({
-        tenantId: 'tenant-floes',
+        tenantId: message.tenantId,
         channel: 'WHATSAPP',
         providerMessageId: message.id,
         customer: {
@@ -153,6 +166,7 @@ export async function prepareReply(message) {
           name: message.name,
         },
         text: message.text,
+        correlationId: message.correlationId,
       }),
     })
   } catch (error) {
@@ -198,8 +212,8 @@ export async function prepareReply(message) {
       : 'OTHER'
 
     safeLog('ganobot_result', {
-      correlationId: message.id,
-      tenantId: 'tenant-floes',
+      correlationId: message.correlationId,
+      tenantId: message.tenantId,
       result: 'HUMAN_REQUESTED',
       escalationReason: reason,
     })
@@ -220,8 +234,8 @@ export async function prepareReply(message) {
   }
 
   safeLog('ganobot_result', {
-    correlationId: message.id,
-    tenantId: 'tenant-floes',
+    correlationId: message.correlationId,
+    tenantId: message.tenantId,
     result: 'VALID_REPLY',
   })
 
@@ -238,20 +252,30 @@ export async function receive(message, dependencies = {}) {
   const prepareAutomationReply = dependencies.prepareReply || prepareReply
 
   const id = inboundId(message.id)
+  if (!isKnownTenant(message.tenantId) || !message.phoneNumberId) throw new Error('Resolved tenant channel is required')
+  const correlationId = message.correlationId || message.id
+  const customerIdentityKey = hash(`${message.tenantId}:META:WHATSAPP:${message.from}`)
+  const conversationId = `conversation_${customerIdentityKey}`
 
   safeLog('inbound_received', {
-    correlationId: message.id,
+    correlationId,
     provider: 'META_WHATSAPP',
   })
 
   safeLog('tenant_resolved', {
-    correlationId: message.id,
-    tenantId: 'tenant-floes',
+    correlationId,
+    tenantId: message.tenantId,
   })
 
   const inserted = await createDocument(id, {
-    tenantId: 'tenant-floes',
+    tenantId: message.tenantId,
+    channel: 'WHATSAPP',
+    provider: 'META',
     providerMessageId: message.id,
+    correlationId,
+    externalCustomerId: message.from,
+    customerIdentityKey,
+    conversationId,
     phoneNumberId: message.phoneNumberId,
     from: message.from,
     text: message.text,
@@ -279,8 +303,8 @@ export async function receive(message, dependencies = {}) {
     })
 
     safeLog('automation_decision', {
-      correlationId: message.id,
-      tenantId: 'tenant-floes',
+      correlationId,
+      tenantId: message.tenantId,
       decision: 'HUMAN',
       escalationReason: 'SYSTEM_ERROR',
       technicalReason,
@@ -304,8 +328,8 @@ export async function receive(message, dependencies = {}) {
     })
 
     safeLog('automation_decision', {
-      correlationId: message.id,
-      tenantId: 'tenant-floes',
+      correlationId,
+      tenantId: message.tenantId,
       decision: 'HUMAN',
       escalationReason: decision.escalationReason || 'OTHER',
     })
@@ -322,7 +346,11 @@ export async function receive(message, dependencies = {}) {
 
   try {
     const created = await createDocument(out, {
-      tenantId: 'tenant-floes',
+      tenantId: message.tenantId,
+      channel: 'WHATSAPP',
+      provider: 'META',
+      phoneNumberId: message.phoneNumberId,
+      correlationId,
       inboundId: id,
       to: message.from,
       text: decision.text,
@@ -334,8 +362,8 @@ export async function receive(message, dependencies = {}) {
 
     if (!created) {
       safeLog('outbound_persistence_duplicate', {
-        correlationId: message.id,
-        tenantId: 'tenant-floes',
+        correlationId,
+        tenantId: message.tenantId,
         outboundId: out,
       })
 
@@ -367,8 +395,8 @@ export async function receive(message, dependencies = {}) {
     }).catch(() => {})
 
     safeLog('automation_decision', {
-      correlationId: message.id,
-      tenantId: 'tenant-floes',
+      correlationId,
+      tenantId: message.tenantId,
       decision: 'HUMAN',
       escalationReason: 'SYSTEM_ERROR',
       technicalReason: 'OUTBOUND_PERSISTENCE_ERROR',
@@ -384,8 +412,8 @@ export async function receive(message, dependencies = {}) {
   }
 
   safeLog('automation_decision', {
-    correlationId: message.id,
-    tenantId: 'tenant-floes',
+    correlationId,
+    tenantId: message.tenantId,
     decision: 'AUTO_REPLY',
   })
 
@@ -396,18 +424,25 @@ export async function receive(message, dependencies = {}) {
   }
 }
 
-export async function sendOutbound(id) {
-  const item = await getDoc(id)
-  if (!item || item.tenantId !== 'tenant-floes') return { status: 'NOT_FOUND' }
+export async function sendOutbound(id, dependencies = {}) {
+  const getDocument=dependencies.getDoc||getDoc
+  const createDocument=dependencies.createDoc||createDoc
+  const updateDocument=dependencies.updateDoc||updateDoc
+  const resolveChannel=dependencies.resolveChannel||resolveWhatsAppChannel
+  const request=dependencies.fetch||fetch
+  const item = await getDocument(id)
+  if (!item || !isKnownTenant(item.tenantId)) return { status: 'NOT_FOUND' }
   if (item.status !== 'PENDING') return { status: item.status }
+  const channel = resolveChannel(item.phoneNumberId)
+  if (!channel || channel.tenantId !== item.tenantId) return { status: 'CHANNEL_NOT_CONFIGURED' }
   // Durable claim prevents concurrent sends. An interrupted request remains UNKNOWN,
   // requiring manual reconciliation against Meta before an operator retries it.
-  if (!await createDoc(`claim_${hash(id)}`, { outboundId: id, claimedAt: now(), claimId: randomUUID() })) return { status: 'ALREADY_CLAIMED' }
+  if (!await createDocument(`claim_${hash(id)}`, { outboundId: id, claimedAt: now(), claimId: randomUUID() })) return { status: 'ALREADY_CLAIMED' }
   const attempt = Number(item.attempts || 0) + 1
-  await updateDoc(id, { status: 'SENDING', attempts: String(attempt) })
+  await updateDocument(id, { status: 'SENDING', attempts: String(attempt) })
   safeLog('outbound_attempt', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENDING', attempt })
   try {
-    const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(must('FLOES_WHATSAPP_PHONE_NUMBER_ID'))}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must('META_WHATSAPP_ACCESS_TOKEN')}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: item.text } }) })
+    const response = await request(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(channel.externalChannelId)}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: item.text } }) })
     const body = await response.json().catch(() => ({}))
     if (!response.ok || !body.messages?.[0]?.id) {
       const details = metaErrorDetails(response.status, body)
@@ -415,13 +450,13 @@ export async function sendOutbound(id) {
       error.meta = details
       throw error
     }
-    await updateDoc(id, { status: 'SENT', providerMessageId: body.messages[0].id, sentAt: now() })
+    await updateDocument(id, { status: 'SENT', providerMessageId: body.messages[0].id, sentAt: now() })
     safeLog('meta_send_succeeded', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENT', httpStatus: response.status })
     return { status: 'SENT', providerMessageId: body.messages[0].id }
   } catch (error) {
     // Do not auto-retry an ambiguous send: Meta may have accepted it before a timeout.
     const details = error?.meta || { httpStatus: 0, metaErrorCode: null, metaErrorType: error instanceof Error ? error.name : 'Error', message: error instanceof Error ? error.message : 'Unknown send error', fbtraceId: null }
-    await updateDoc(id, { status: 'UNKNOWN', error: details.message, httpStatus: details.httpStatus, metaErrorCode: details.metaErrorCode ?? '', metaErrorType: details.metaErrorType ?? '', fbtraceId: details.fbtraceId ?? '' })
+    await updateDocument(id, { status: 'UNKNOWN', error: details.message, httpStatus: details.httpStatus, metaErrorCode: details.metaErrorCode ?? '', metaErrorType: details.metaErrorType ?? '', fbtraceId: details.fbtraceId ?? '' })
     console.error(JSON.stringify({ service: 'whatsapp-live', stage: 'meta_send_failed', correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'UNKNOWN', ...details }))
     return { status: 'UNKNOWN', error: details }
   }
@@ -437,10 +472,15 @@ export async function handleWebhook(req, res) {
     const raw = await readRaw(req)
     if (!verifyMetaSignature(raw, req.headers['x-hub-signature-256'], must('META_WHATSAPP_APP_SECRET'))) return json(res, 403, { error: 'Invalid signature' })
     const payload = JSON.parse(raw.toString('utf8'))
-    const messages = extractMessages(payload, must('FLOES_WHATSAPP_PHONE_NUMBER_ID'))
+    const messages = extractMessages(payload)
     const outcomes = []
     for (const message of messages) {
-      const result = await receive(message)
+      const channel = resolveWhatsAppChannel(message.phoneNumberId)
+      if (!channel) {
+        safeLog('unknown_channel_ignored', { correlationId: message.id })
+        continue
+      }
+      const result = await receive({ ...message, tenantId: channel.tenantId, correlationId: message.id })
       outcomes.push(result)
       if (result.outboundId) await sendOutbound(result.outboundId)
     }

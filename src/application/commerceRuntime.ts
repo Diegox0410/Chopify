@@ -8,6 +8,9 @@ import { OrderApplication } from './orders.js'
 import { SupervisorApplication } from './supervisor.js'
 import { CustomerIdentityResolver } from './customerIdentityResolver.js'
 import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway.js'
+import { tenantDefinitions } from '../config/tenantRegistry.js'
+
+export { tenantDefinitions } from '../config/tenantRegistry.js'
 
 export interface CommerceRuntimeState {schemaVersion:3;commercial:SampleDatabase;orders:SampleOrderDatabase}
 export interface CommerceStateRecord {state:CommerceRuntimeState;version:string|null;migrated?:boolean}
@@ -16,16 +19,12 @@ export interface CommerceStateStore {
  save(tenantId:string,state:CommerceRuntimeState,expectedVersion:string|null):Promise<string>
 }
 export class CommerceStateConflictError extends Error{constructor(){super('Commerce state changed concurrently');this.name='CommerceStateConflictError'}}
-export const tenantDefinitions={
- 'tenant-mg':{id:'tenant-mg',slug:'mg',name:'MG Salud y Belleza',currency:'USD',status:'ONBOARDING',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
- 'tenant-dgng':{id:'tenant-dgng',slug:'dgng',name:'DGNG',currency:'USD',status:'ONBOARDING',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
- 'tenant-floes':{id:'tenant-floes',slug:'floes',name:'FLOES',currency:'USD',status:'ACTIVE',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z'},
-} as const
 export function createTenantCommerceState(tenantId:string):CommerceRuntimeState{
- const tenant=tenantDefinitions[tenantId as keyof typeof tenantDefinitions]
+ const tenant=tenantDefinitions[tenantId]
  if(!tenant)throw new Error('Unknown tenant')
+ const now='2026-01-01T00:00:00.000Z'
  return{schemaVersion:3,commercial:{
-  tenants:[structuredClone(tenant)],customers:[],identities:[],conversations:[],opportunities:[],activities:[],notes:[],tasks:[],escalations:[],
+  tenants:[{...structuredClone(tenant),createdAt:now,updatedAt:now}],customers:[],identities:[],conversations:[],opportunities:[],activities:[],notes:[],tasks:[],escalations:[],
  },orders:{
   products:tenantId==='tenant-floes'?floesCatalog.map(item=>structuredClone(item)):[],orders:[],payments:[],proofs:[],reservations:[],idempotency:[],inventory:[],agreements:[],audit:[],publishedOrderIds:[],
  }}

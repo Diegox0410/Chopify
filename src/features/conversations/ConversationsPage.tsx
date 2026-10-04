@@ -2,6 +2,7 @@ import { MessageSquareText,RefreshCw } from 'lucide-react'
 import { useCallback,useEffect,useState } from 'react'
 import { EmptyState,StatusPill } from '../commercial/shared'
 import { auth } from '../../auth/firebaseClient'
+import { tenantDefinitions, tenantIds } from '../../config/tenantRegistry.js'
 
 type Outbound={status:string;mode:string;attempts:number}
 type LiveConversation={id:string;tenantId:string;channel:'WHATSAPP';contact:string;lastActivityAt:string;status:string;mode:string;requiresHuman:boolean;escalationReason:string;outbound:Outbound|null}
@@ -11,7 +12,7 @@ const date=(value:string)=>value
   : 'Sin fecha'
 
 export function ConversationsPage(){
-  const tenant='tenant-floes'
+  const [tenant,setTenant]=useState('tenant-floes')
   const [items,setItems]=useState<readonly LiveConversation[]>([])
   const [loading,setLoading]=useState(false)
   const [error,setError]=useState('')
@@ -48,7 +49,7 @@ export function ConversationsPage(){
     }finally{
       setLoading(false)
     }
-  },[])
+  },[tenant])
 
   useEffect(()=>{
     const timer=window.setTimeout(()=>{void load()},0)
@@ -60,12 +61,9 @@ export function ConversationsPage(){
       <div>
         <span className="eyebrow">Operación real</span>
         <h1>Conversaciones</h1>
-        <p>Eventos persistidos del canal WhatsApp de FLOES. No se generan contactos ni conversaciones de muestra.</p>
+        <p>Eventos WhatsApp persistidos y consultados server-side para el tenant seleccionado.</p>
       </div>
-
-      <button className="secondary-button" onClick={()=>void load()} disabled={loading}>
-        <RefreshCw size={15}/> {loading?'Actualizando...':'Actualizar'}
-      </button>
+      <div><select value={tenant} onChange={event=>setTenant(event.target.value)}>{tenantIds.map(id=><option key={id} value={id}>{tenantDefinitions[id].name}</option>)}</select> <button className="secondary-button" onClick={()=>void load()} disabled={loading}><RefreshCw size={15}/> {loading?'Actualizando...':'Actualizar'}</button></div>
     </div>
 
     {error&&
@@ -77,7 +75,7 @@ export function ConversationsPage(){
     {!loading&&items.length===0
       ? <EmptyState
           title="Sin conversaciones reales"
-          body="Cuando llegue un mensaje del canal productivo de FLOES aparecerá aquí."
+          body={`Cuando llegue un mensaje de un canal configurado para ${tenantDefinitions[tenant].name} aparecerá aquí.`}
         />
       : <section className="conversation-grid">
           {items.map(item=>
@@ -88,7 +86,7 @@ export function ConversationsPage(){
 
               <div>
                 <strong>{item.contact}</strong>
-                <span>FLOES · {item.channel}</span>
+                <span>{tenantDefinitions[item.tenantId]?.name??item.tenantId} · {item.channel}</span>
               </div>
 
               <StatusPill value={item.outbound?.status||item.status}/>

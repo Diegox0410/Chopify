@@ -18,6 +18,7 @@ export function effectiveSalePrice(product: CommerceProduct, variant?: CommerceP
 export function isCommerciallyVisible(product: CommerceProduct): boolean { return product.status === 'ACTIVE' && product.visibility === 'VISIBLE' }
 export function validateCommerceProduct(product: CommerceProduct): void {
   if (!product.id.trim() || !product.sku.trim() || !product.slug.trim() || !product.name.trim()) throw new Error('Product identity is required')
+  if (!/^[A-Z]{3}$/.test(product.currency)) throw new Error('Product currency must be an explicit ISO code')
   if (product.pricingStatus === 'READY' && (product.salePriceCents === null || product.salePriceCents <= 0)) throw new Error('READY pricing requires a positive sale price')
   if (product.pricingStatus === 'PENDING' && product.salePriceCents !== null) throw new Error('PENDING pricing cannot expose a sale price')
   for (const cents of [product.costCents, product.salePriceCents]) if (cents !== null && (!Number.isInteger(cents) || cents < 0)) throw new Error('Money values must be non-negative integer cents or null')

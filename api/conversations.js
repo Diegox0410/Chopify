@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { listLiveDocuments } from './_lib/live.js'
 import { authorizePlatformOwner } from './_lib/firebaseAuth.js'
+import { isKnownTenant } from '../src/config/tenantRegistry.js'
 
 const json = (res, status, body) => {
   res.statusCode = status
@@ -37,7 +38,18 @@ export const validOperationsToken = (supplied, expected) => {
   return actual.length === wanted.length && timingSafeEqual(actual, wanted)
 }
 
-const OPERATIONS_TENANT_ID = 'tenant-floes'
+export const operationsAllowedTenants = () => new Set(
+  (process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS || 'tenant-floes')
+    .split(',')
+    .map(value => value.trim())
+    .filter(isKnownTenant),
+)
+
+const ownerTokens = () => ({
+  'tenant-floes': process.env.CHOPIFY_OWNER_API_TOKEN_FLOES,
+  'tenant-mg': process.env.CHOPIFY_OWNER_API_TOKEN_MG,
+  'tenant-dgng': process.env.CHOPIFY_OWNER_API_TOKEN_DGNG,
+})
 
 async function authorize(req) {
   const authorization = req.headers?.authorization
@@ -50,6 +62,8 @@ async function authorize(req) {
   ) {
     return { type: 'operations' }
   }
+
+  for (const [tenantId, token] of Object.entries(ownerTokens())) if (validOperationsToken(authorization, token)) return { type: 'tenant-owner', tenantId }
 
   const platformOwner = await authorizePlatformOwner(req)
 
@@ -69,30 +83,25 @@ export default async function handler(req, res) {
   }
 
   try {
+    const requestedQuery = typeof req.query?.tenantId === 'string' ? req.query.tenantId : ''
     const access = await authorize(req)
 
     if (access.type === 'denied') {
-      return json(res, access.status, { error: access.status === 403 ? 'Forbidden' : 'Unauthorized' })
+      return json(res, access.status, { error: access.status === 403 ? 'Forbidden' : access.status === 503 ? 'Authentication service not configured' : 'Unauthorized' })
     }
 
     const requested =
-      typeof req.query?.tenantId === 'string'
-        ? req.query.tenantId
-        : OPERATIONS_TENANT_ID
+      requestedQuery
+        ? requestedQuery
+        : access.type === 'operations' ? 'tenant-floes' : ''
 
-    /*
-     * Pilot tenant boundary:
-     * Both the legacy Operations credential and the authenticated Platform
-     * Owner are currently restricted to FLOES conversations.
-     *
-     * MG and DGNG must receive an explicit tenant authorization model before
-     * this boundary is widened.
-     */
-    if (requested !== OPERATIONS_TENANT_ID) {
+    if (!isKnownTenant(requested)) {
       return json(res, 403, { error: 'Tenant not allowed' })
     }
+    if (access.type === 'operations' && !operationsAllowedTenants().has(requested)) return json(res, 403, { error: 'Tenant not allowed' })
+    if (access.type === 'tenant-owner' && access.tenantId !== requested) return json(res, 403, { error: 'Tenant not allowed' })
 
-    const documents = await listLiveDocuments(300)
+    const documents = await listLiveDocuments(requested, 300)
 
     const inbound = documents.filter(
       item => item.id.startsWith('in_') && item.tenantId === requested,

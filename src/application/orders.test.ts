@@ -209,9 +209,12 @@ describe('H3 cancellation, expiration, fulfillment and dashboard', () => {
   it('dashboard uses managed revenue base and snapshot management fees', async () => {
     const app = setup()
     const before = await app.orders.dashboard('tenant-mg')
-    await createStockOrder(app, 'dashboard-order', { shippingCents: 5_000, taxCents: 4_000 })
+    const order=await createStockOrder(app, 'dashboard-order', { shippingCents: 5_000, taxCents: 4_000 })
+    expect((await app.orders.dashboard('tenant-mg')).managedRevenueBaseCents).toBe(before.managedRevenueBaseCents)
+    const proof=await app.orders.submitPaymentProof({tenantId:'tenant-mg',orderId:order.id,idempotencyKey:'dashboard-proof',actor:operator})
+    await app.orders.approvePayment({tenantId:'tenant-mg',paymentId:proof.paymentId,proofId:proof.id,idempotencyKey:'dashboard-approve',actor:tenantOwner})
     const after = await app.orders.dashboard('tenant-mg')
-    expect(after.managedRevenueBaseCents - before.managedRevenueBaseCents).toBe(10_000)
+    expect((after.managedRevenueBaseCents??0) - (before.managedRevenueBaseCents??0)).toBe(10_000)
     expect((after.managementFeesCents ?? 0) - (before.managementFeesCents ?? 0)).toBe(500)
   })
 
@@ -221,6 +224,8 @@ describe('H3 cancellation, expiration, fulfillment and dashboard', () => {
     const order = await createStockOrder(app, 'missing-agreement')
     expect(order.managedSnapshot.managedOrderRateBps).toBeNull()
     expect(order.managedSnapshot.managementFeeCents).toBeNull()
+    const proof=await app.orders.submitPaymentProof({tenantId:'tenant-mg',orderId:order.id,idempotencyKey:'missing-agreement-proof',actor:operator})
+    await app.orders.approvePayment({tenantId:'tenant-mg',paymentId:proof.paymentId,proofId:proof.id,idempotencyKey:'missing-agreement-approve',actor:tenantOwner})
     await expect(app.orders.dashboard('tenant-mg')).resolves.toMatchObject({ managementFeesCents: null, managementFeesStatus: 'UNAVAILABLE_MISSING_AGREEMENT' })
   })
 })

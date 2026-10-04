@@ -10,6 +10,7 @@
     "./commerce.ts",
     "./admin.ts",
     "./_lib/firebaseAuth.d.ts",
+    "./_lib/channelRegistry.d.ts",
     "../src/application/**/*.ts",
     "../src/domain/**/*.ts",
     "../src/repositories/**/*.ts",

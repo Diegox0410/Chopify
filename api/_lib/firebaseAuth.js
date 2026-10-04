@@ -5,6 +5,10 @@ const CERTS_URL='https://www.googleapis.com/robot/v1/metadata/x509/securetoken@s
 let cachedCerts=null
 let certsExpireAt=0
 
+export class FirebaseAuthConfigurationError extends Error{
+  constructor(){super('Firebase authentication is not configured');this.name='FirebaseAuthConfigurationError'}
+}
+
 export function resetFirebaseAuthCacheForTests(){
   cachedCerts=null
   certsExpireAt=0
@@ -49,12 +53,12 @@ export async function verifyFirebaseIdToken(authorization){
 
     if(header.alg!=='RS256'||typeof header.kid!=='string')return null
 
+    const projectId=process.env.CHOPIFY_FIREBASE_PROJECT_ID
+    if(!projectId)throw new FirebaseAuthConfigurationError()
+
     const certs=await certificates()
     const cert=certs[header.kid]
     if(typeof cert!=='string')return null
-
-    const projectId=process.env.CHOPIFY_FIREBASE_PROJECT_ID
-    if(!projectId)throw new Error('Missing CHOPIFY_FIREBASE_PROJECT_ID')
 
     const now=Math.floor(Date.now()/1000)
 
@@ -76,7 +80,8 @@ export async function verifyFirebaseIdToken(authorization){
       email:typeof payload.email==='string'?payload.email:'',
       emailVerified:payload.email_verified===true,
     }
-  }catch{
+  }catch(error){
+    if(error instanceof FirebaseAuthConfigurationError)throw error
     return null
   }
 }
@@ -86,18 +91,21 @@ export async function requirePlatformOwner(req){
   if(!identity)return null
 
   const expected=process.env.CHOPIFY_PLATFORM_OWNER_UID
-  if(!expected)throw new Error('Missing CHOPIFY_PLATFORM_OWNER_UID')
+  if(!expected)throw new FirebaseAuthConfigurationError()
 
   return identity.uid===expected?identity:null
 }
 
 export async function authorizePlatformOwner(req){
-  const identity=await verifyFirebaseIdToken(req.headers?.authorization)
-  if(!identity)return{ok:false,status:401,error:'Unauthorized'}
-
-  const expected=process.env.CHOPIFY_PLATFORM_OWNER_UID
-  if(!expected)throw new Error('Missing CHOPIFY_PLATFORM_OWNER_UID')
-  if(identity.uid!==expected)return{ok:false,status:403,error:'Forbidden'}
-
-  return{ok:true,status:200,identity}
+  try{
+    const identity=await verifyFirebaseIdToken(req.headers?.authorization)
+    if(!identity)return{ok:false,status:401,error:'Unauthorized'}
+    const expected=process.env.CHOPIFY_PLATFORM_OWNER_UID
+    if(!expected)throw new FirebaseAuthConfigurationError()
+    if(identity.uid!==expected)return{ok:false,status:403,error:'Forbidden'}
+    return{ok:true,status:200,identity}
+  }catch(error){
+    if(error instanceof FirebaseAuthConfigurationError)return{ok:false,status:503,error:'Authentication service not configured'}
+    throw error
+  }
 }
