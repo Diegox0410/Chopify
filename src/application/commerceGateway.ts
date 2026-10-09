@@ -142,16 +142,17 @@ export class CommerceGateway {
    }
    case 'checkAvailability':{
     const productId=requiredString(input.productId,'productId');const variantId=optionalString(input.variantId)
+    const size=optionalString(input.size)?.toUpperCase()
     const item=await this.commerce.getProduct(tenantId,productId,variantId)
     if(!item)return{productId,variantId,available:false,availableQuantity:0,reason:'not_found'}
     const quantity=typeof input.quantity==='number'?Math.max(1,Math.floor(input.quantity)):1
     const variant=variantId?item.variants.find((entry)=>entry.id===variantId&&entry.status==='ACTIVE'&&entry.visibility==='VISIBLE'):undefined
     if(variantId&&!variant)return{productId,variantId,available:false,reason:'variant_not_found'}
     const mode=variant?.fulfillmentMode??item.fulfillmentMode
-    const available=await this.commerce.getAvailability(tenantId,productId,variantId)
+    const available=await this.commerce.getAvailability(tenantId,productId,variantId,size)
     const canFulfill=variant?.available!==false&&(['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(mode)||(available!==null&&available>=quantity))
     const reason=available===null&&mode==='STOCK'?'inventory_not_configured':mode==='HYBRID'&&(available===null||available<quantity)?'made_to_order_fallback':canFulfill&&mode==='MADE_TO_ORDER'?'made_to_order':canFulfill?undefined:'insufficient_stock'
-    return{productId,variantId,available:canFulfill,...(mode==='STOCK'||mode==='HYBRID'?{availableQuantity:available}:{}),availabilityStatus:available===null?'NOT_CONFIGURED':available>=quantity?'AVAILABLE':'OUT_OF_STOCK',reason,fulfillmentMode:mode,pricingStatus:item.pricingStatus}
+    return{productId,variantId,...(size?{size}:{}),available:canFulfill,...(mode==='STOCK'||mode==='HYBRID'?{availableQuantity:available}:{}),availabilityStatus:available===null?'NOT_CONFIGURED':available>=quantity?'AVAILABLE':'OUT_OF_STOCK',reason,fulfillmentMode:mode,pricingStatus:item.pricingStatus}
    }
    case 'createOrUpdateCustomer':{
     const customerId=optionalString(input.customerId)

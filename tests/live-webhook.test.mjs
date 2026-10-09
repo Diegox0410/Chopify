@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply, escalationReason, receive, sendOutbound, LiveDependencyError } from '../api/_lib/live.js'
-import { operationsAllowedTenants, validOperationsToken } from '../api/conversations.js'
+import { operationsAllowedTenants, resolveConversationTenant, validOperationsToken } from '../api/conversations.js'
 import { resolveWhatsAppChannel } from '../api/_lib/channelRegistry.js'
 test('Meta HMAC validates exact raw bytes and rejects tampering', () => {
   const raw = Buffer.from('{"entry":[]}')
@@ -219,7 +219,14 @@ test('conversation reads require the exact operations bearer', () => {
 test('conversation Operations access is explicitly tenant scoped',()=>{
   const previous=process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS
   delete process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS
-  try{assert.deepEqual([...operationsAllowedTenants()],['tenant-floes'])}
+  try{
+    assert.deepEqual([...operationsAllowedTenants()],['tenant-floes'])
+    assert.equal(resolveConversationTenant('',{type:'operations'}),null)
+    assert.equal(resolveConversationTenant(undefined,{type:'operations'}),null)
+    assert.equal(resolveConversationTenant('tenant-floes',{type:'operations'}),'tenant-floes')
+    assert.equal(resolveConversationTenant('tenant-mg',{type:'operations'}),null)
+    assert.equal(resolveConversationTenant('tenant-floes',{type:'tenant-owner',tenantId:'tenant-mg'}),null)
+  }
   finally{if(previous!==undefined)process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS=previous}
 })
 

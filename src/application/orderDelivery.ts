@@ -1,5 +1,9 @@
 export const ORDER_DELIVERY_MODES = ['SERVIENTREGA', 'PICKUP', 'LOCAL_DELIVERY'] as const
 export type OrderDeliveryMode = typeof ORDER_DELIVERY_MODES[number]
+const hasControlCharacters = (value: string) => [...value].some(character => {
+  const code = character.charCodeAt(0)
+  return code < 32 || code === 127
+})
 
 export interface OrderDeliveryAddress {
   name: string
@@ -40,15 +44,15 @@ export function validateOrderDelivery(raw: unknown): OrderDeliveryValidation {
     const rawValue = rawAddress[field]
     const value = typeof rawValue === 'string' ? rawValue.trim() : ''
     if (!value) errors[field] = `${title} es obligatorio.`
-    else if (value.length > limit || /[\x00-\x1f\x7f]/.test(value)) errors[field] = `${title} debe tener hasta ${limit} caracteres.`
+    else if (value.length > limit || hasControlCharacters(value)) errors[field] = `${title} debe tener hasta ${limit} caracteres.`
     values[field] = value
   }
   const rawPhone = typeof rawAddress.phone === 'string' ? rawAddress.phone.trim() : ''
   const phone = rawPhone.replace(/[\s()-]/g, '')
-  if (!/^\+?\d{7,15}$/.test(phone) || rawPhone.length > 40 || /[\x00-\x1f\x7f]/.test(rawPhone)) errors.phone = 'Ingresa un teléfono válido de 7 a 15 dígitos.'
+  if (!/^\+?\d{7,15}$/.test(phone) || rawPhone.length > 40 || hasControlCharacters(rawPhone)) errors.phone = 'Ingresa un teléfono válido de 7 a 15 dígitos.'
   const reference = typeof rawAddress.reference === 'string' ? rawAddress.reference.trim() : ''
   if (rawAddress.reference != null && typeof rawAddress.reference !== 'string') errors.reference = 'La referencia debe ser texto.'
-  else if (reference.length > 500 || /[\x00-\x1f\x7f]/.test(reference)) errors.reference = 'La referencia debe tener hasta 500 caracteres.'
+  else if (reference.length > 500 || hasControlCharacters(reference)) errors.reference = 'La referencia debe tener hasta 500 caracteres.'
   if (Object.keys(errors).length > 0) return { ok: false, errors }
   return { ok: true, value: {
     deliveryMode: mode as OrderDeliveryMode,

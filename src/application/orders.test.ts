@@ -85,6 +85,34 @@ describe('H3 application order creation and commercial snapshots', () => {
     expect(afterSecond).toBe(afterFirst)
   })
 
+  it('creates a reservation for the selected size and leaves other sizes untouched', async () => {
+    const app = setup()
+    const base = await app.orderRepositories.commerce.getProduct('tenant-mg', 'mg-stock-1')
+    if (!base) throw new Error('Stock fixture missing')
+    const sizeVariant = {
+      id: 'mg-size-variant', sku: 'MG-SIZE-VINO', color: 'Vino', status: 'ACTIVE' as const,
+      visibility: 'VISIBLE' as const, images: [], stock: 50, importedStock: 50,
+      initialStockBySize: { XS: 10, S: 10, M: 10, L: 10, XL: 10 },
+      fulfillmentMode: 'STOCK' as const, salePriceCents: 10_000, available: true,
+      sizes: ['XS', 'S', 'M', 'L', 'XL'], minimumStock: 0,
+    }
+    const product = { ...base, id: 'mg-size-stock', sku: 'MG-SIZE-STOCK', slug: 'mg-size-stock', variants: [sizeVariant], fulfillmentMode: 'STOCK' as const }
+    await app.orderRepositories.commerce.upsertProducts('tenant-mg', [product])
+    const opportunity = await orderReadyOpportunity(app.commercial)
+    const order = await app.orders.createOrderFromOpportunity({
+      tenantId: 'tenant-mg', opportunityId: opportunity.id,
+      items: [{ productId: product.id, variantId: sizeVariant.id, size: 'm', quantity: 1 }],
+      idempotencyKey: 'size-m-reservation', actor: tenantOwner,
+    })
+    const detail = await app.orders.getOrderDetail('tenant-mg', order.id)
+    expect(detail?.reservation?.items).toMatchObject([{ productId: product.id, variantId: sizeVariant.id, size: 'M', quantity: 1 }])
+    expect(await app.orderRepositories.commerce.getAvailability('tenant-mg', product.id, sizeVariant.id, 'M')).toBe(9)
+    expect(await app.orderRepositories.commerce.getAvailability('tenant-mg', product.id, sizeVariant.id, 'S')).toBe(10)
+    await app.orderRepositories.commerce.commitInventory('tenant-mg', detail!.reservation!.items)
+    expect(await app.orderRepositories.commerce.getPosition('tenant-mg', product.id, sizeVariant.id, 'M')).toMatchObject({ onHand: 9, reserved: 0 })
+    expect(await app.orderRepositories.commerce.getPosition('tenant-mg', product.id, sizeVariant.id, 'S')).toMatchObject({ onHand: 10, reserved: 0 })
+  })
+
   it('blocks unsafe retry when idempotency is STARTED', async () => {
     const app = setup()
     const opportunity = await orderReadyOpportunity(app.commercial)

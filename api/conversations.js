@@ -45,6 +45,14 @@ export const operationsAllowedTenants = () => new Set(
     .filter(isKnownTenant),
 )
 
+export const resolveConversationTenant = (requested, access) => {
+  const tenantId = typeof requested === 'string' ? requested.trim() : ''
+  if (!tenantId) return null
+  if (access.type === 'tenant-owner' && access.tenantId !== tenantId) return null
+  if (access.type === 'operations' && !operationsAllowedTenants().has(tenantId)) return null
+  return isKnownTenant(tenantId) ? tenantId : null
+}
+
 const ownerTokens = () => ({
   'tenant-floes': process.env.CHOPIFY_OWNER_API_TOKEN_FLOES,
   'tenant-mg': process.env.CHOPIFY_OWNER_API_TOKEN_MG,
@@ -90,16 +98,10 @@ export default async function handler(req, res) {
       return json(res, access.status, { error: access.status === 403 ? 'Forbidden' : access.status === 503 ? 'Authentication service not configured' : 'Unauthorized' })
     }
 
-    const requested =
-      requestedQuery
-        ? requestedQuery
-        : access.type === 'operations' ? 'tenant-floes' : ''
-
-    if (!isKnownTenant(requested)) {
+    const requested = resolveConversationTenant(requestedQuery, access)
+    if (!requested) {
       return json(res, 403, { error: 'Tenant not allowed' })
     }
-    if (access.type === 'operations' && !operationsAllowedTenants().has(requested)) return json(res, 403, { error: 'Tenant not allowed' })
-    if (access.type === 'tenant-owner' && access.tenantId !== requested) return json(res, 403, { error: 'Tenant not allowed' })
 
     const documents = await listLiveDocuments(requested, 300)
 

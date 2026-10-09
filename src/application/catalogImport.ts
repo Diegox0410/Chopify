@@ -71,8 +71,18 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       const active = boolean(row.activo), available = boolean(row.disponible)
       if (active === null) throw new Error('activo es obligatorio')
       const fulfillmentMode = mode(row.tipo_entrega)
-      const stock = decimal(row.stock_actual), minimumStock = decimal(row.stock_minimo)
-      for (const count of [stock, minimumStock]) if (count !== null && (!Number.isInteger(count) || count < 0)) throw new Error('Stock debe ser entero no negativo o vacío')
+      const hasIndividualSizeColorStock = Object.prototype.hasOwnProperty.call(row, 'stock_individual_por_talla_y_por_color')
+      const sizes = [...new Set(text(row.talla).split(/[,;|/\s-]+/).map(size => size.trim().toUpperCase()).filter(Boolean))]
+      const stockPerSize = hasIndividualSizeColorStock ? decimal(row.stock_individual_por_talla_y_por_color) : null
+      const stock = hasIndividualSizeColorStock
+        ? stockPerSize === null || !sizes.length ? null : stockPerSize * sizes.length
+        : decimal(row.stock_actual)
+      const initialStockBySize = hasIndividualSizeColorStock
+        ? Object.fromEntries(sizes.map(size => [size, stockPerSize]))
+        : undefined
+      const minimumStock = decimal(row.stock_minimo)
+      for (const count of [stockPerSize, stock, minimumStock]) if (count !== null && (!Number.isInteger(count) || count < 0)) throw new Error('Stock debe ser entero no negativo o vacío')
+      if (hasIndividualSizeColorStock && stockPerSize !== null && !sizes.length) throw new Error('El stock individual por talla y color requiere al menos una talla')
       const sale = decimal(row.precio_venta), promotion = decimal(row.precio_promocional), cost = decimal(row.costo_unitario)
       for (const amount of [sale, promotion, cost]) if (amount !== null && (!Number.isFinite(amount) || amount < 0)) throw new Error('Precio/costo inválido')
       if (sale !== null && sale <= 0) throw new Error('precio_venta debe ser mayor que cero o vacío')
@@ -88,7 +98,8 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       if (!references.length && color) references.push(`${model}/${color}.jpeg`)
       for (const reference of references) {
         let url: string | undefined
-        if (/^https:\/\//i.test(reference)) { const parsed = new URL(reference); if (parsed.username || parsed.password) throw new Error('URL de imagen inválida'); url = parsed.href }
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(reference) && !/^https:\/\//i.test(reference)) throw new Error('Las URLs de imagen deben usar HTTPS')
+        if (/^https:\/\//i.test(reference)) { const parsed = new URL(reference); if (parsed.username || parsed.password || !parsed.hostname) throw new Error('URL de imagen inválida'); url = parsed.href }
         else {
           if (/^(?:file:|\/\/)/i.test(reference)) throw new Error('URL de imagen inválida')
           // Legacy Excel may contain Windows paths. Resolve only the model/filename in the supplied asset manifest; never read the server filesystem.
@@ -102,9 +113,9 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
         if (url && /^https:\/\//.test(url)) { images.push({ url, alt: `${name}${color ? ` · ${color}` : ''}` }); result.summary.imagesFound++ }
         else { result.summary.imagesMissing++; issue(rowNumber, 'imagen', `Imagen no encontrada: ${reference}`, 'WARNING') }
       }
-      const sizes = text(row.talla).split(/[,;|/\s-]+/).map(size => size.trim().toUpperCase()).filter(Boolean)
       const previousVariant = base?.variants.find(variant => skuKey(variant.sku) === skuKey(sku))
-      const variant: CommerceProductVariant = { ...(previousVariant ?? {}), id: previousVariant?.id ?? `${tenantId}:sku:${encodeURIComponent(skuKey(sku))}`, sku, color: color || null, status: active ? 'ACTIVE' : 'ARCHIVED', visibility: active ? 'VISIBLE' : 'HIDDEN', available: available ?? false, stock, importedStock:stock, minimumStock, salePriceCents: cents(sale), promotionalPriceCents: cents(promotion), fulfillmentMode, sizes, ...(sizes.length === 1 ? { size: sizes[0] } : {}), images: images.length ? images : previousVariant?.images ?? [] }
+      const purchaseAvailability = fulfillmentMode === 'STOCK' ? stock !== null && stock > 0 : available ?? false
+      const variant: CommerceProductVariant = { ...(previousVariant ?? {}), id: previousVariant?.id ?? `${tenantId}:sku:${encodeURIComponent(skuKey(sku))}`, sku, color: color || null, status: active ? 'ACTIVE' : 'ARCHIVED', visibility: active ? 'VISIBLE' : 'HIDDEN', available: purchaseAvailability, stock, importedStock:stock, ...(initialStockBySize ? { initialStockBySize } : {}), minimumStock, salePriceCents: cents(sale), promotionalPriceCents: cents(promotion), fulfillmentMode, sizes, ...(sizes.length === 1 ? { size: sizes[0] } : {}), images: images.length ? images : previousVariant?.images ?? [] }
       const candidates = [...(working?.variants ?? base?.variants ?? [])].filter(item => item.id !== variant.id).concat(variant)
       const knownPrices = candidates.map(item => item.salePriceCents).filter((price): price is number => typeof price === 'number')
       const parentPrice = knownPrices.length ? Math.min(...knownPrices) : null
@@ -119,7 +130,14 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       validateCommerceProduct(product)
       if (available === null) issue(rowNumber, 'disponible', 'Disponibilidad no indicada; la variante queda sin disponibilidad confirmada', 'WARNING')
       if (!sizes.length) issue(rowNumber, 'talla', 'Sin tallas documentadas', 'WARNING')
-      if (stock === null && fulfillmentMode === 'STOCK') issue(rowNumber, 'stock_actual', 'Stock desconocido: no se puede reservar', 'WARNING')
+      if (stock === null && fulfillmentMode === 'STOCK') issue(
+        rowNumber,
+        hasIndividualSizeColorStock ? 'stock_individual_por_talla_y_por_color' : 'stock_actual',
+        hasIndividualSizeColorStock
+          ? 'Stock por talla y color no configurado; la variante queda sin disponibilidad de compra'
+          : 'Stock desconocido: no se puede reservar',
+        'WARNING',
+      )
       groups.set(groupKey, product)
       result.summary.validRows++
       if (previousVariant) result.summary.updates++; else result.summary.newVariants++

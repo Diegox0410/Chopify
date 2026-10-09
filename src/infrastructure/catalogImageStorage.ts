@@ -4,6 +4,10 @@ import sharp from 'sharp'
 import { serviceAccountAccessToken, serviceAccountCredentials, type ServerEnvironment, type ServerFetch } from './serviceAccountOAuth.js'
 
 export const MAX_CATALOG_IMAGE_BYTES = 3 * 1024 * 1024
+const hasControlCharacters = (value: string) => [...value].some(character => {
+  const code = character.charCodeAt(0)
+  return code < 32 || code === 127
+})
 const MAX_BASE64_LENGTH = Math.ceil(MAX_CATALOG_IMAGE_BYTES / 3) * 4
 const STORAGE_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_write'
 const CACHE_CONTROL = 'public, max-age=31536000, immutable'
@@ -42,7 +46,7 @@ export function catalogImageSlug(label: string): string {
 }
 
 function label(value: unknown, name: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 100 || /[\x00-\x1f\x7f/\\]/.test(value)) {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 100 || hasControlCharacters(value) || /[/\\]/.test(value)) {
     throw new CatalogImageError(`Invalid ${name}`)
   }
   const result = value.trim()
@@ -145,7 +149,7 @@ export async function uploadCatalogImage(raw: unknown, options: CatalogStorageOp
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body: new Uint8Array(body), signal: AbortSignal.timeout(20_000),
   })
-  let publicToken = downloadToken
+  let publicToken: string = downloadToken
   if (uploaded.status === 412 || uploaded.status === 409) {
     const existing = await request(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.bucket)}/o/${encodeURIComponent(objectPath)}?fields=name,contentType,size,metadata`, {
       headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000),

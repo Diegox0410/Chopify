@@ -6,7 +6,7 @@ import { catalogImageSlug, preflightCatalogStorage, uploadCatalogImage, type Cat
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 try { loadEnvFile(resolve(root, '.env.local')) }
-catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Unable to load local server environment') }
+catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Unable to load local server environment', { cause: error }) }
 
 const models = [
   { directory: 'MARIA_JOSE', model: 'Modelo María José' },
@@ -19,7 +19,7 @@ async function main() {
   await preflightCatalogStorage()
   let previous: { assets?: Array<CatalogImageAsset & { model: string; color: string; sourcePath: string }> } = {}
   try { previous = JSON.parse(await readFile(destination, 'utf8')) as typeof previous }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Existing catalog asset manifest is invalid') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Existing catalog asset manifest is invalid', { cause: error }) }
   const manifest = { version: 1, tenantId: 'tenant-floes', generatedAt: new Date().toISOString(), assets: previous.assets ?? [] }
   await mkdir(resolve(root, '.catalog-import'), { recursive: true })
   for (const { directory, model } of models) {
