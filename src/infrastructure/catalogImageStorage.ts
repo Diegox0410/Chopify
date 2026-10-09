@@ -26,19 +26,33 @@ export interface CatalogImageInput {
   dataBase64: string
 }
 
+export interface CatalogImageReference {
+  tenantId: string
+  model: string
+  color: string
+}
+
 export interface CatalogImageAsset {
   url: string
   alt: string
   width: number
   height: number
   bytes: number
-  mimeType: 'image/webp'
+  mimeType: 'image/webp' | 'image/jpeg'
   sha256: string
   objectPath: string
   sourceFilename: string
 }
 
 export interface CatalogStorageOptions { env?: ServerEnvironment; fetch?: ServerFetch }
+
+/** Provider-neutral boundary used by the importer and server API. */
+export interface CatalogImageStorage {
+  readonly provider: 'public' | 'firebase' | (string & {})
+  upload(input: CatalogImageInput): Promise<CatalogImageAsset>
+  exists(reference: CatalogImageReference): Promise<boolean>
+  getPublicUrl(reference: CatalogImageReference): Promise<string | null>
+}
 
 export function catalogImageSlug(label: string): string {
   return label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -73,6 +87,17 @@ export function validateCatalogImageInput(raw: unknown): CatalogImageInput {
     throw new CatalogImageError('Invalid base64 image or image exceeds 3 MiB')
   }
   return { tenantId: 'tenant-floes', model, color, filename: value.filename, dataBase64: value.dataBase64 }
+}
+
+export function validateCatalogImageReference(raw: unknown): CatalogImageReference {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new CatalogImageError('Invalid catalog image reference')
+  const value = raw as Record<string, unknown>
+  if (value.tenantId !== 'tenant-floes') throw new CatalogImageError('Tenant not allowed', 403)
+  return {
+    tenantId: 'tenant-floes',
+    model: label(value.model, 'model'),
+    color: label(value.color, 'color'),
+  }
 }
 
 function configuration(env: ServerEnvironment) {
@@ -178,4 +203,41 @@ export async function uploadCatalogImage(raw: unknown, options: CatalogStorageOp
     url, alt: `${input.model} — ${input.color}`, width: optimized.info.width, height: optimized.info.height,
     bytes: optimized.data.length, mimeType: 'image/webp', sha256, objectPath, sourceFilename: input.filename,
   }
+}
+
+/** Optional Firebase implementation retained behind CatalogImageStorage. */
+export class FirebaseCatalogStorage implements CatalogImageStorage {
+  readonly provider = 'firebase' as const
+  constructor(private readonly options: CatalogStorageOptions = {}) {}
+
+  upload(input: CatalogImageInput) { return uploadCatalogImage(input, this.options) }
+
+  private async lookup(reference: CatalogImageReference): Promise<CatalogImageAsset | null> {
+    const normalized = validateCatalogImageReference(reference)
+    const env = this.options.env ?? process.env
+    const request = this.options.fetch ?? fetch
+    const config = configuration(env)
+    const token = await serviceAccountAccessToken(env, STORAGE_SCOPE, request)
+    const prefix = `floes/catalog/${catalogImageSlug(normalized.model)}/${catalogImageSlug(normalized.color)}-`
+    const query = new URLSearchParams({ prefix, projection: 'full', fields: 'items(name,contentType,size,metadata,updated)' })
+    const response = await request(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(config.bucket)}/o?${query}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) throw new CatalogImageError(`Catalog image lookup failed (${response.status})`, 503)
+    const body = await response.json() as { items?: Array<{ name?: string; contentType?: string; size?: string; updated?: string; metadata?: Record<string, string> }> }
+    const matches = (body.items ?? []).filter(item => item.name?.startsWith(prefix) && item.contentType === 'image/webp' &&
+      /^[a-f0-9]{64}\.webp$/i.test(item.name.slice(prefix.length)) && UUID.test(item.metadata?.firebaseStorageDownloadTokens?.split(',')[0]?.trim() ?? ''))
+      .sort((left, right) => (right.updated ?? '').localeCompare(left.updated ?? ''))
+    const item = matches[0]
+    if (!item?.name) return null
+    const downloadToken = item.metadata!.firebaseStorageDownloadTokens.split(',')[0].trim()
+    return {
+      url: `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(config.bucket)}/o/${encodeURIComponent(item.name)}?alt=media&token=${downloadToken}`,
+      alt: `${normalized.model} — ${normalized.color}`, width: 0, height: 0, bytes: Number(item.size ?? 0), mimeType: 'image/webp',
+      sha256: item.metadata?.sha256 ?? '', objectPath: item.name, sourceFilename: '',
+    }
+  }
+
+  async exists(reference: CatalogImageReference) { return (await this.lookup(reference)) !== null }
+  async getPublicUrl(reference: CatalogImageReference) { return (await this.lookup(reference))?.url ?? null }
 }

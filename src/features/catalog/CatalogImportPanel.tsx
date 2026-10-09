@@ -42,7 +42,6 @@ async function collectAssets(files: FileList | null): Promise<Asset[]> {
   if(assets.length>1000)throw new Error('Máximo 1000 imágenes por importación')
   return assets
 }
-const base64=(bytes:Uint8Array)=>{let value='';for(let index=0;index<bytes.length;index+=8192)value+=String.fromCharCode(...bytes.subarray(index,index+8192));return btoa(value)}
 export function CatalogImportPanel({tenantId,products,onImported}:{tenantId:string;products:readonly CommerceProduct[];onImported():Promise<void>}) {
   const [rows,setRows]=useState<CatalogRow[]>([]),[assets,setAssets]=useState<Asset[]>([]),[preview,setPreview]=useState<CatalogPreview|null>(null)
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState('')
@@ -69,8 +68,8 @@ export function CatalogImportPanel({tenantId,products,onImported}:{tenantId:stri
         const key=normalizeImagePath(asset.name)
         let model=path.length>1?normalizeCatalogKey(path.at(-2)??''):''
         if(!model){const matching=rows.filter(row=>[1,2,3,4].some(number=>normalizeImagePath(String(row[`imagen_${number}`]??'')).endsWith(key)));const models=[...new Set(matching.map(row=>normalizeCatalogKey(String(row.nombre_producto??'').replace(/^modelo\s+/i,''))))];if(models.length!==1)throw new Error(`Coloca ${filename} dentro de la carpeta de su modelo`);model=models[0]}
-        setStatus(`Subiendo imagen ${index+1} de ${assets.length}…`)
-        const response=await fetch('/api/catalog-assets',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({tenantId,model,color:normalizeCatalogKey(filename.replace(/\.[^.]+$/,'')),filename,dataBase64:base64(asset.bytes)})})
+        setStatus(`Verificando imagen ${index+1} de ${assets.length}…`)
+        const response=await fetch('/api/catalog-assets',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({tenantId,model,color:normalizeCatalogKey(filename.replace(/\.[^.]+$/,''))})})
         const body=await response.json() as {ok?:boolean;data?:{url:string};error?:string}
         if(!response.ok||!body.ok||!body.data)throw new Error(body.error??'No se pudo subir la imagen')
         urls[asset.name]=body.data.url

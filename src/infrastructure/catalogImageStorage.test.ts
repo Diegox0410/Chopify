@@ -136,6 +136,7 @@ describe('catalog assets API owner authorization', () => {
 
   it('rejects other tenants and malformed requests from authenticated owners', async () => {
     vi.mocked(authorizePlatformOwner).mockResolvedValue({ ok: true, status: 200, identity: { uid: 'owner' } })
+    vi.stubEnv('CATALOG_IMAGE_STORAGE_PROVIDER', 'firebase')
     for (const [body, expected] of [['{', 400], [{ ...input, tenantId: 'tenant-dgng' }, 403], [[], 400], [{ ...input, dataBase64: 'invalid' }, 400]] as const) {
       const res = response()
       await handler({ method: 'POST', headers: {}, body }, res)
@@ -147,6 +148,7 @@ describe('catalog assets API owner authorization', () => {
   it('returns only a verified image asset to an authenticated owner', async () => {
     vi.mocked(authorizePlatformOwner).mockResolvedValue({ ok: true, status: 200, identity: { uid: 'owner' } })
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
+    vi.stubEnv('CATALOG_IMAGE_STORAGE_PROVIDER', 'firebase')
     const server = storageFetch()
     vi.stubGlobal('fetch', server.request)
     const res = response()
@@ -155,5 +157,23 @@ describe('catalog assets API owner authorization', () => {
     expect(JSON.parse(res.body)).toMatchObject({ ok: true, data: { width: 1600, height: 800, mimeType: 'image/webp' } })
     expect(res.body).not.toContain('test-oauth')
     expect(res.body).not.toContain('private_key')
+  })
+
+  it('resolves public static images without Firebase Storage credentials or bucket configuration', async () => {
+    vi.mocked(authorizePlatformOwner).mockResolvedValue({ ok: true, status: 200, identity: { uid: 'owner' } })
+    vi.stubEnv('CATALOG_IMAGE_STORAGE_PROVIDER', 'public')
+    vi.stubEnv('FLOES_PUBLIC_BASE_URL', 'https://floes-preview.example.test')
+    vi.stubEnv('FIREBASE_SERVICE_ACCOUNT_JSON', '')
+    vi.stubEnv('CHOPIFY_CATALOG_STORAGE_BUCKET', '')
+    const request = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://floes-preview.example.test/catalogo/floes/daniela/vino.jpeg')
+      expect(init?.method).toBe('HEAD')
+      return new Response(null, { status: 200, headers: { 'content-type': 'image/jpeg' } })
+    })
+    vi.stubGlobal('fetch', request)
+    const res = response()
+    await handler({ method: 'POST', headers: {}, body: { tenantId: 'tenant-floes', model: 'Daniela', color: 'Vino' } }, res)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ ok: true, data: { url: 'https://floes-preview.example.test/catalogo/floes/daniela/vino.jpeg', objectPath: 'catalogo/floes/daniela/vino.jpeg' } })
   })
 })

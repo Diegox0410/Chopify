@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run && node --test tests/*.test.mjs",
+    "sync:floes-public-images": "node --import tsx scripts/sync-floes-public-images.ts",
+    "pilot:floes:dry-run": "node --import tsx scripts/dry-run-floes-public-catalog.ts",
     "test:watch": "vitest"
   },
   "dependencies": {

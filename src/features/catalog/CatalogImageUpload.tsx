@@ -9,8 +9,8 @@ export function CatalogImageUpload({tenantId,model,color,onUploaded}:{tenantId:s
     try{
       if(file.size>3*1024*1024)throw new Error('La imagen supera 3 MB')
       const user=auth.currentUser;if(!user)throw new Error('Inicia sesión nuevamente')
-      const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let index=0;index<bytes.length;index+=8192)binary+=String.fromCharCode(...bytes.subarray(index,index+8192))
-      const response=await fetch('/api/catalog-assets',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${await user.getIdToken()}`},body:JSON.stringify({tenantId,model,color:color||'principal',filename:file.name,dataBase64:btoa(binary)})})
+      const imageColor=color||file.name.replace(/\.[^.]+$/,'')
+      const response=await fetch('/api/catalog-assets',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${await user.getIdToken()}`},body:JSON.stringify({tenantId,model,color:imageColor})})
       const result=await response.json() as {ok?:boolean;data?:ProductImage;error?:string}
       if(!response.ok||!result.ok||!result.data)throw new Error(result.error??'No se pudo subir la imagen')
       onUploaded(result.data)
@@ -18,5 +18,5 @@ export function CatalogImageUpload({tenantId,model,color,onUploaded}:{tenantId:s
     finally{setBusy(false)}
   }
   if(tenantId!=='tenant-floes')return null
-  return <label className="field"><span>{busy?'Subiendo imagen…':'Subir/reemplazar imagen en Storage'}</span><input type="file" accept=".jpg,.jpeg,.png,.webp" disabled={busy||!model.trim()} onChange={event=>void upload(event.target.files?.[0])}/>{error&&<small role="alert">{error}</small>}</label>
+  return <label className="field"><span>{busy?'Buscando imagen…':'Vincular imagen pública ya sincronizada'}</span><input type="file" accept=".jpg,.jpeg,.png,.webp" disabled={busy||!model.trim()} onChange={event=>void upload(event.target.files?.[0])}/>{error&&<small role="alert">{error}</small>}</label>
 }
