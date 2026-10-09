@@ -1,0 +1,131 @@
+import type { CommerceProduct, CommerceProductVariant, FlatSizeGuide, ProductImage } from '../domain/commerce.js'
+import { validateCommerceProduct } from '../domain/commerce.js'
+import type { FulfillmentMode } from '../domain/inventory.js'
+
+export type CatalogRow = Record<string, unknown>
+export interface CatalogIssue { row: number; field: string; message: string; severity: 'ERROR' | 'WARNING' }
+export interface CatalogPreview { products: CommerceProduct[]; issues: CatalogIssue[]; summary: { rows: number; validRows: number; newProducts: number; newVariants: number; updates: number; duplicateSkus: number; imagesFound: number; imagesMissing: number } }
+export const normalizeCatalogKey = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+export const normalizeImagePath = (value: string) => value.replace(/\\/g, '/').split('/').map(part => normalizeCatalogKey(part.replace(/\.(jpeg|jpg|png|webp)$/i, ''))).filter(Boolean).join('/')
+const text = (value: unknown) => value == null ? '' : String(value).trim()
+const skuKey = (value: string) => value.trim().toUpperCase()
+const fields = (row: CatalogRow) => Object.fromEntries(Object.entries(row).map(([key, value]) => [normalizeCatalogKey(key).replace(/-/g, '_'), value]))
+const nonempty = (value: unknown) => text(value) !== ''
+function decimal(value: unknown): number | null {
+  if (!nonempty(value)) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN
+  let input = text(value).replace(/[$€\s]/g, '')
+  if (input.includes(',') && input.includes('.')) input = input.lastIndexOf(',') > input.lastIndexOf('.') ? input.replace(/\./g, '').replace(',', '.') : input.replace(/,/g, '')
+  else input = input.replace(',', '.')
+  return /^[+-]?\d+(\.\d+)?$/.test(input) ? Number(input) : NaN
+}
+function boolean(value: unknown): boolean | null {
+  const key = normalizeCatalogKey(text(value))
+  if (!key) return null
+  if (['si','true','1','yes','activo','disponible'].includes(key)) return true
+  if (['no','false','0','inactivo','no-disponible'].includes(key)) return false
+  throw new Error('Usa sí/no o true/false')
+}
+export function parseFlatSizeGuide(value: unknown): FlatSizeGuide | undefined {
+  const input = text(value)
+  if (!input) return undefined
+  const instructions = 'Mide horizontalmente una prenda que te quede bien, extendida sobre una superficie plana. Compara medidas planas en centímetros; no son contornos corporales y no se multiplican por dos. Si estás entre tallas, consulta tu preferencia de ajuste. No garantiza ajuste perfecto.'
+  if (!input.startsWith('{')) return { measurement: 'FLAT_GARMENT_CM', instructions: `${instructions}\n${input}` }
+  const parsed = JSON.parse(input) as FlatSizeGuide
+  if (parsed.measurement !== 'FLAT_GARMENT_CM') throw new Error('La guía debe usar FLAT_GARMENT_CM')
+  for (const part of [parsed.blouse, parsed.trousers]) if (part) for (const row of part) if (!row.size || !row.measurementsCm || Object.values(row.measurementsCm).some(number => typeof number !== 'number' || !Number.isFinite(number) || number <= 0)) throw new Error('Medidas planas inválidas')
+  return { ...parsed, instructions: `${instructions}\n${parsed.instructions ?? ''}` }
+}
+function mode(value: unknown): FulfillmentMode {
+  const key = normalizeCatalogKey(text(value))
+  if (['stock','inmediato','inmediata','entrega-inmediata'].includes(key)) return 'STOCK'
+  if (['made-to-order','bajo-pedido','sobre-pedido','por-pedido','pedido','confeccion'].includes(key)) return 'MADE_TO_ORDER'
+  if (['hybrid','hibrido'].includes(key)) return 'HYBRID'
+  // The master template uses this column for delivery channels, not production mode.
+  // STOCK is conservative: an empty stock can never be purchased or claimed available.
+  if (/servientrega|retiro|delivery|entrega|envio/.test(key)) return 'STOCK'
+  throw new Error('tipo_entrega debe indicar STOCK o bajo pedido; no se infiere disponibilidad')
+}
+
+/** Pure preview shared by admin, CLI and the authenticated server. Never trusts a client-built product. */
+export function previewCatalogImport(tenantId: string, source: readonly CatalogRow[], existing: readonly CommerceProduct[] = [], imageUrls: Record<string, string> = {}): CatalogPreview {
+  if (tenantId !== 'tenant-floes') throw new Error('La importación FLOES está restringida a tenant-floes')
+  if (!source.length || source.length > 5000) throw new Error('El archivo debe contener entre 1 y 5000 filas')
+  if (existing.some(product => product.tenantId !== tenantId)) throw new Error('Cross-tenant catalog rejected')
+  const result: CatalogPreview = { products: [], issues: [], summary: { rows: source.length, validRows: 0, newProducts: 0, newVariants: 0, updates: 0, duplicateSkus: 0, imagesFound: 0, imagesMissing: 0 } }
+  const groups = new Map<string, CommerceProduct>()
+  const seen = new Set<string>()
+  const normalizedImages = Object.entries(imageUrls).map(([path, url]) => ({ path: normalizeImagePath(path), url }))
+  const issue = (row: number, field: string, message: string, severity: CatalogIssue['severity'] = 'ERROR') => result.issues.push({ row, field, message, severity })
+  source.forEach((raw, index) => {
+    const rowNumber = Number(raw.__row) || index + 2
+    const row = fields(raw)
+    const name = text(row.nombre_producto), sku = text(row.sku), color = text(row.color)
+    const model = normalizeCatalogKey(name.replace(/^modelo\s+/i, ''))
+    if (!name || !sku || !model) { issue(rowNumber, 'nombre_producto/sku', 'Nombre y SKU son obligatorios'); return }
+    if (seen.has(skuKey(sku))) { result.summary.duplicateSkus++; issue(rowNumber, 'sku', `SKU repetido: ${sku}`); return }
+    seen.add(skuKey(sku))
+    try {
+      const currency = text(row.moneda).toUpperCase()
+      if (!/^[A-Z]{3}$/.test(currency)) throw new Error('moneda debe contener un código ISO explícito')
+      const active = boolean(row.activo), available = boolean(row.disponible)
+      if (active === null) throw new Error('activo es obligatorio')
+      const fulfillmentMode = mode(row.tipo_entrega)
+      const stock = decimal(row.stock_actual), minimumStock = decimal(row.stock_minimo)
+      for (const count of [stock, minimumStock]) if (count !== null && (!Number.isInteger(count) || count < 0)) throw new Error('Stock debe ser entero no negativo o vacío')
+      const sale = decimal(row.precio_venta), promotion = decimal(row.precio_promocional), cost = decimal(row.costo_unitario)
+      for (const amount of [sale, promotion, cost]) if (amount !== null && (!Number.isFinite(amount) || amount < 0)) throw new Error('Precio/costo inválido')
+      if (sale !== null && sale <= 0) throw new Error('precio_venta debe ser mayor que cero o vacío')
+      const cents = (amount: number | null) => amount === null ? null : Math.round(amount * 100)
+      const existingBySku = existing.find(product => product.variants.some(variant => skuKey(variant.sku) === skuKey(sku)))
+      const base = existingBySku ?? existing.find(product => normalizeCatalogKey(product.name.replace(/^modelo\s+/i, '')) === model || product.slug === model)
+      if (existing.some(product => skuKey(product.sku) === skuKey(sku))) throw new Error('SKU de variante coincide con SKU de producto padre')
+      const groupKey = base?.id ?? `${tenantId}:model:${model}`
+      const working = groups.get(groupKey)
+      if (working && working.currency !== currency) throw new Error('Todas las variantes del modelo deben usar la misma moneda')
+      const images: ProductImage[] = []
+      const references = [row.imagen_1,row.imagen_2,row.imagen_3,row.imagen_4].map(text).filter(Boolean)
+      if (!references.length && color) references.push(`${model}/${color}.jpeg`)
+      for (const reference of references) {
+        let url: string | undefined
+        if (/^https:\/\//i.test(reference)) { const parsed = new URL(reference); if (parsed.username || parsed.password) throw new Error('URL de imagen inválida'); url = parsed.href }
+        else {
+          if (/^(?:file:|\/\/)/i.test(reference)) throw new Error('URL de imagen inválida')
+          // Legacy Excel may contain Windows paths. Resolve only the model/filename in the supplied asset manifest; never read the server filesystem.
+          const portable = /^[a-z]:/i.test(reference) ? reference.replace(/\\/g, '/').split('/').slice(-2).join('/') : reference
+          const normalized = normalizeImagePath(portable)
+          let matches = normalizedImages.filter(image => image.path === normalized || image.path.endsWith(`/${normalized}`))
+          if (!normalized.includes('/')) matches = matches.filter(image => image.path.includes(`${model}/`))
+          if (matches.length > 1) throw new Error(`Imagen ambigua: ${reference}`)
+          url = matches[0]?.url
+        }
+        if (url && /^https:\/\//.test(url)) { images.push({ url, alt: `${name}${color ? ` · ${color}` : ''}` }); result.summary.imagesFound++ }
+        else { result.summary.imagesMissing++; issue(rowNumber, 'imagen', `Imagen no encontrada: ${reference}`, 'WARNING') }
+      }
+      const sizes = text(row.talla).split(/[,;|/\s-]+/).map(size => size.trim().toUpperCase()).filter(Boolean)
+      const previousVariant = base?.variants.find(variant => skuKey(variant.sku) === skuKey(sku))
+      const variant: CommerceProductVariant = { ...(previousVariant ?? {}), id: previousVariant?.id ?? `${tenantId}:sku:${encodeURIComponent(skuKey(sku))}`, sku, color: color || null, status: active ? 'ACTIVE' : 'ARCHIVED', visibility: active ? 'VISIBLE' : 'HIDDEN', available: available ?? false, stock, importedStock:stock, minimumStock, salePriceCents: cents(sale), promotionalPriceCents: cents(promotion), fulfillmentMode, sizes, ...(sizes.length === 1 ? { size: sizes[0] } : {}), images: images.length ? images : previousVariant?.images ?? [] }
+      const candidates = [...(working?.variants ?? base?.variants ?? [])].filter(item => item.id !== variant.id).concat(variant)
+      const knownPrices = candidates.map(item => item.salePriceCents).filter((price): price is number => typeof price === 'number')
+      const parentPrice = knownPrices.length ? Math.min(...knownPrices) : null
+      const guide = parseFlatSizeGuide(row.guia_tallas)
+      const product: CommerceProduct = {
+        ...(working ?? base ?? {}), id: groupKey, tenantId, sku: base?.sku ?? `MODEL-${model.toUpperCase()}`, slug: base?.slug ?? model, name, category: text(row.categoria), description: text(row.descripcion), commercialSummary: text(row.descripcion), currency,
+        status: candidates.some(item => item.status === 'ACTIVE') ? 'ACTIVE' : 'ARCHIVED', visibility: candidates.some(item => item.visibility === 'VISIBLE') ? 'VISIBLE' : 'HIDDEN', fulfillmentMode, pricingStatus: parentPrice === null ? 'PENDING' : 'READY', salePriceCents: parentPrice, costCents: cents(cost), percentage: base?.percentage ?? null, percentageType: base?.percentageType ?? null, images: working?.images.length ? working.images : images.length ? images : base?.images ?? [], variants: candidates,
+        collection: text(row.coleccion), gender: text(row.genero), characteristics: text(row.caracteristicas).split(/[;|\n]+/).map(value => value.trim()).filter(Boolean), material: text(row.material), ganoBotNotes: text(row.notas_ganobot), internalNotes: text(row.notas_internas), ...(guide ? { sizeGuide: guide } : {}), sizeRecommendation: text(row.recomendacion_talla), preparationTime: text(row.tiempo_preparacion), deliveryType: text(row.tipo_entrega), exchangePolicy: { allowed: boolean(row.permite_cambio), conditions: text(row.condiciones_cambio) },
+      }
+      // A previous product-level promotion must never silently apply to imported SKU prices.
+      delete product.promotionalPriceCents
+      validateCommerceProduct(product)
+      if (available === null) issue(rowNumber, 'disponible', 'Disponibilidad no indicada; la variante queda sin disponibilidad confirmada', 'WARNING')
+      if (!sizes.length) issue(rowNumber, 'talla', 'Sin tallas documentadas', 'WARNING')
+      if (stock === null && fulfillmentMode === 'STOCK') issue(rowNumber, 'stock_actual', 'Stock desconocido: no se puede reservar', 'WARNING')
+      groups.set(groupKey, product)
+      result.summary.validRows++
+      if (previousVariant) result.summary.updates++; else result.summary.newVariants++
+    } catch (cause) { issue(rowNumber, 'fila', cause instanceof Error ? cause.message : 'Fila inválida') }
+  })
+  result.products = [...groups.values()]
+  result.summary.newProducts = result.products.filter(product => !existing.some(item => item.id === product.id)).length
+  return result
+}

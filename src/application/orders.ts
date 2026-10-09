@@ -25,6 +25,20 @@ export class OrderApplication {
 
   async listOrders(scope: TenantScope, filters?: Parameters<OrderRepository['listByTenant']>[1]) { const ids = await this.tenantIds(scope); return (await Promise.all(ids.map((tenantId) => this.repositories.orders.listByTenant(tenantId, filters)))).flat() }
   getOrder(tenantId: string, orderId: string) { return this.repositories.orders.getById(tenantId, orderId) }
+  async updateOrderDelivery(tenantId:string,orderId:string,customerId:string,details:Pick<NonNullable<Order['fulfillmentDetails']>,'deliveryMode'|'deliveryAddress'>,actor:ActorContext) {
+    authorizeTenant(actor,tenantId,'order:manage');const order=await this.requireOrder(tenantId,orderId)
+    if(order.customerId!==customerId)throw new Error('Order does not belong to customer')
+    if(['DISPATCHED','DELIVERED','CANCELLED'].includes(order.fulfillmentStatus))throw new Error('Delivery cannot change after dispatch')
+    const next={...order,fulfillmentDetails:{...order.fulfillmentDetails,...details},updatedAt:this.clock()}
+    await this.repositories.orders.save(tenantId,next);await this.record(next,'ORDER_UPDATED','Datos de entrega actualizados',actor);return next
+  }
+  async recordOrderFollowUp(tenantId:string,orderId:string,customerId:string,outcome:NonNullable<Order['followUp']>['outcome'],note:string|undefined,actor:ActorContext) {
+    authorizeTenant(actor,tenantId,'order:manage');const order=await this.requireOrder(tenantId,orderId)
+    if(order.customerId!==customerId)throw new Error('Order does not belong to customer')
+    if(order.fulfillmentStatus!=='DELIVERED')throw new Error('Follow-up requires a delivered order')
+    const next:Order={...order,followUp:{status:'FOLLOW_UP',outcome,note,recordedAt:this.clock()},updatedAt:this.clock()}
+    await this.repositories.orders.save(tenantId,next);await this.record(next,'ORDER_UPDATED','Seguimiento posventa registrado',actor);return next
+  }
   async getOrderDetail(tenantId: string, orderId: string): Promise<OrderDetail | null> { const order = await this.repositories.orders.getById(tenantId, orderId); if (!order) return null; const [payment, proofs, reservation, activities, audit] = await Promise.all([this.repositories.payments.getByOrder(tenantId, orderId), this.repositories.proofs.listByTenant(tenantId, { orderId }), this.repositories.reservations.getByOrder(tenantId, orderId), this.repositories.activities.listByTenant(tenantId, { orderId }), this.repositories.audit.listByTenant(tenantId, { entityType: 'ORDER', entityId: orderId })]); if (!payment) throw new Error('Order payment record is missing'); return { order, payment, proofs, reservation, activities, audit } }
   searchProducts(tenantId: string, query = '') { return this.repositories.commerce.searchProducts(tenantId, query) }
 
@@ -34,9 +48,15 @@ export class OrderApplication {
     const opportunity = await this.repositories.opportunities.getById(input.tenantId, input.opportunityId); if (!opportunity || opportunity.status !== 'ORDER_CREATED') throw new Error('Opportunity must be ORDER_CREATED in this tenant')
     if (!await this.repositories.customers.getById(input.tenantId, opportunity.customerId)) throw new Error('Customer not found in tenant')
     const products = await Promise.all(input.items.map(async (request) => { const product = await this.repositories.commerce.getProduct(input.tenantId, request.productId); if (!product) throw new Error('Product not found in tenant commerce adapter'); const variant = request.variantId ? product.variants.find((item) => item.id === request.variantId && item.status === 'ACTIVE' && item.visibility === 'VISIBLE') : undefined; if (request.variantId && !variant) throw new Error('Product variant not found or unavailable'); if (!request.variantId && product.variants.length > 0) throw new Error('A product variant is required'); const priceCents = effectiveSalePrice(product, variant); if (product.pricingStatus !== 'READY' || priceCents === null || priceCents <= 0) throw new Error('Product pricing is pending; checkout is not available'); const available = await this.repositories.commerce.getAvailability(input.tenantId, product.id, variant?.id); return { request, product, variant, priceCents, available } }))
-    for (const {product,variant,request,available} of products) { const mode=variant?.fulfillmentMode??product.fulfillmentMode; if(mode==='STOCK'){if(available===null)throw new Error('Inventory is not configured for a STOCK product');if(available<request.quantity)throw new Error('Insufficient STOCK inventory')} }
+    for (const {product,variant,request,available} of products) {
+      if(variant?.available===false)throw new Error('Product variant is not available')
+      const sizes=variant?.sizes??(variant?.size?[variant.size]:[])
+      if(sizes.length && (!request.size || !sizes.includes(request.size.toUpperCase())))throw new Error('Select a documented size for this variant')
+      if(request.size && !sizes.length)throw new Error('Sizes are not configured for this variant')
+      const mode=variant?.fulfillmentMode??product.fulfillmentMode; if(mode==='STOCK'){if(available===null)throw new Error('Inventory is not configured for a STOCK product');if(available<request.quantity)throw new Error('Insufficient STOCK inventory')}
+    }
     const currencies = new Set(products.map(({ product }) => product.currency)); if (currencies.size !== 1) throw new Error('Order items must use one currency')
-    const snapshots = products.map(({ product, variant, priceCents, request }) => createOrderItemSnapshot({ productId: product.id, variantId: variant?.id, productName: product.name, variantName: variant?.color ?? undefined, quantity: request.quantity, unitPriceCents: priceCents, discountCents: request.discountCents, imageUrl: variant?.images[0]?.url ?? product.images[0]?.url, externalProductId: product.externalProductId }))
+    const snapshots = products.map(({ product, variant, priceCents, request }) => createOrderItemSnapshot({ productId: product.id, variantId: variant?.id, size:request.size?.toUpperCase(), productName: product.name, variantName: variant?.color ?? undefined, quantity: request.quantity, unitPriceCents: priceCents, discountCents: request.discountCents, imageUrl: variant?.images[0]?.url ?? product.images[0]?.url, externalProductId: product.externalProductId,exchangePolicy:product.exchangePolicy }))
     const physical = products.filter(({ product, variant, request, available }) => { const mode=variant?.fulfillmentMode??product.fulfillmentMode; return mode === 'STOCK' || (mode === 'HYBRID' && available !== null && available >= request.quantity) }).map(({ request }) => ({ productId: request.productId, variantId: request.variantId, quantity: request.quantity }))
     const totals = calculateOrderTotals(snapshots, input); const at = this.clock(); const managed = input.managed ?? true; const managedBy = managed ? input.managedBy ?? 'HUMAN' : 'NONE'; const attributionSnapshot: Attribution = { acquisitionSource: opportunity.acquisitionSource, conversionChannel: opportunity.conversionChannel, managed, managedBy, conversationId: opportunity.conversationId }
     const agreement = managed ? await this.repositories.agreements.getEffective(input.tenantId, at) : null; const commercialAgreementSnapshot: CommercialAgreementSnapshot | undefined = agreement ? { agreementId: agreement.id, managedOrderRateBps: agreement.managedOrderRateBps, publicationFeeCents: agreement.publicationFeeCents, annualContinuityFeeCents: agreement.annualContinuityFeeCents, rulesVersion: agreement.rulesVersion, effectiveFrom: agreement.effectiveFrom, capturedAt: at } : undefined

@@ -9,6 +9,8 @@
   "include": [
     "./commerce.ts",
     "./admin.ts",
+    "./catalog.ts",
+    "./catalog-assets.ts",
     "./_lib/firebaseAuth.d.ts",
     "./_lib/channelRegistry.d.ts",
     "../src/application/**/*.ts",

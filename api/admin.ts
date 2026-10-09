@@ -11,12 +11,12 @@ interface Body { operation?: string; tenantId?: unknown; input?: unknown; idempo
 const runtime = new PersistentCommerceRuntime(new FirestoreCommerceStateStore())
 const tenantIds = Object.keys(tenantDefinitions) as Array<keyof typeof tenantDefinitions>
 const allowed = new Set<CommerceGatewayOperation>([
-  'listProducts', 'syncFloesCatalog', 'updateProduct', 'ownerDashboard', 'listOrders',
+  'listProducts', 'syncFloesCatalog', 'updateProduct', 'previewCatalogImport', 'importCatalog', 'ownerDashboard', 'listOrders',
   'getOrderDetail', 'listPaymentReviews', 'approvePayment', 'rejectPaymentProof',
   'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered',
   'listCustomers', 'listOpportunities', 'listExceptions',
 ])
-const mutations = new Set(['syncFloesCatalog', 'updateProduct', 'approvePayment', 'rejectPaymentProof', 'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered'])
+const mutations = new Set(['syncFloesCatalog', 'updateProduct', 'importCatalog', 'approvePayment', 'rejectPaymentProof', 'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered'])
 const json = (res: Response, status: number, body: unknown) => {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json')

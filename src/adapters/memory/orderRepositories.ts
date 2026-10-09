@@ -4,6 +4,8 @@ import type { AgreementRepository, AuditRepository, IdempotencyRepository, Inven
 import type { BusinessCommerceAdapter } from '../../application/commercePort.js'
 import { sampleAgreements, sampleAuditEvents, sampleIdempotency, sampleInventory, sampleOrders, samplePayments, sampleProducts, sampleProofs, sampleReservations } from '../../data/sample/orders.js'
 import { floesCatalog } from '../../data/catalog/floes.js'
+import { normalizeCatalogKey } from '../../application/catalogImport.js'
+import { effectiveSalePrice } from '../../domain/commerce.js'
 
 export interface SampleOrderDatabase { products: CommerceProduct[]; orders: Order[]; payments: Payment[]; proofs: PaymentProof[]; reservations: InventoryReservation[]; idempotency: IdempotencyRecord[]; inventory: InventoryPosition[]; agreements: CommercialAgreement[]; audit: AuditEvent[]; publishedOrderIds: string[] }
 export const createSampleOrderDatabase = (): SampleOrderDatabase => ({
@@ -29,15 +31,44 @@ export class MemoryAgreementRepository implements AgreementRepository { construc
 export class MemoryAuditRepository implements AuditRepository { constructor(private db: SampleOrderDatabase) {} async listByTenant(tenantId: string, filters: Parameters<AuditRepository['listByTenant']>[1] = {}) { return this.db.audit.filter((item) => item.tenantId === tenantId && (!filters?.entityType || item.entityType === filters.entityType) && (!filters?.entityId || item.entityId === filters.entityId)) } async append(tenantId: string, item: AuditEvent) { assertTenant(tenantId, item); this.db.audit.push(item) } }
 export class SampleBusinessCommerceAdapter implements BusinessCommerceAdapter, InventoryRepository {
   constructor(private db: SampleOrderDatabase) {}
-  async searchProducts(tenantId: string, query: string) { const normalized = query.toLocaleLowerCase(); return this.db.products.filter((item) => item.tenantId === tenantId && isCommerciallyVisible(item) && [item.name,item.description,item.commercialSummary,item.category,item.sku,...item.variants.map((v) => `${v.color ?? ''} ${v.sku}`)].join(' ').toLocaleLowerCase().includes(normalized)).map((item) => structuredClone(item)) }
+  async searchProducts(tenantId: string, query: string) { const normalized = normalizeCatalogKey(query).split('-').filter(Boolean); return this.db.products.filter((item) => { const haystack=normalizeCatalogKey([item.name,item.description,item.commercialSummary,item.category,item.sku,item.material,...(item.characteristics??[]),item.ganoBotNotes,...item.variants.map((v) => `${v.color ?? ''} ${v.sku}`)].join(' '));return item.tenantId === tenantId && isCommerciallyVisible(item) && normalized.every(word=>haystack.includes(word)) }).map((item) => structuredClone(item)) }
   async getProduct(tenantId: string, productId: string) { const item = this.db.products.find((entry) => entry.tenantId === tenantId && entry.id === productId && isCommerciallyVisible(entry)); return item ? structuredClone(item) : null }
-  async getPrice(tenantId: string, productId: string, variantId?: string) { const item = await this.getProduct(tenantId, productId); if (!item) return null; const variant = variantId ? item.variants.find((entry) => entry.id === variantId) : undefined; const priceCents = variant?.salePriceCents === undefined ? item.salePriceCents : variant.salePriceCents; return priceCents === null ? null : { priceCents, currency: item.currency } }
-  async listProducts(tenantId: string) { return this.db.products.filter((item) => item.tenantId === tenantId).map((item) => structuredClone(item)) }
-  async upsertProducts(tenantId: string, products: readonly CommerceProduct[]) { const next=this.db.products.filter((item)=>item.tenantId!==tenantId).concat(this.db.products.filter((item)=>item.tenantId===tenantId).map((item)=>structuredClone(item))); for (const product of products) { if (product.tenantId !== tenantId) throw new Error('Cross-tenant catalog mutation rejected'); validateCommerceProduct(product); const existing = next.findIndex((item) => item.tenantId === tenantId && item.id === product.id); if (existing < 0) next.push(structuredClone(product)); else next[existing] = structuredClone(product) } const tenantProducts=next.filter((item)=>item.tenantId===tenantId);const keys=tenantProducts.flatMap((item)=>[item.sku,...item.variants.map((variant)=>variant.sku)]);if(new Set(keys).size!==keys.length)throw new Error('Product and variant SKUs must be unique within a tenant');const slugs=tenantProducts.map((item)=>item.slug);if(new Set(slugs).size!==slugs.length)throw new Error('Product slugs must be unique within a tenant');this.db.products.splice(0,this.db.products.length,...next);return this.listProducts(tenantId) }
+  async getPrice(tenantId: string, productId: string, variantId?: string) { const item = await this.getProduct(tenantId, productId); if (!item) return null; const variant = variantId ? item.variants.find((entry) => entry.id === variantId && entry.status==='ACTIVE' && entry.visibility==='VISIBLE') : undefined; if(variantId&&!variant)return null; const priceCents = effectiveSalePrice(item,variant); return priceCents === null ? null : { priceCents, currency: item.currency } }
+  async listProducts(tenantId: string) { return this.db.products.filter((item) => item.tenantId === tenantId).map((item) => ({...structuredClone(item),variants:item.variants.map(variant=>({...structuredClone(variant),stock:this.db.inventory.find(position=>position.tenantId===tenantId&&position.productId===item.id&&position.variantId===variant.id)?.onHand??variant.stock}))})) }
+  async upsertProducts(tenantId: string, products: readonly CommerceProduct[]) {
+    const next=structuredClone(this.db.products), inventory=structuredClone(this.db.inventory)
+    for (const product of products) {
+      if (product.tenantId !== tenantId) throw new Error('Cross-tenant catalog mutation rejected')
+      validateCommerceProduct(product)
+      const index=next.findIndex(item=>item.tenantId===tenantId&&item.id===product.id), previous=index<0?undefined:next[index]
+      for (const variant of product.variants) {
+        const old=previous?.variants.find(item=>item.id===variant.id)
+        const position=inventory.find(item=>item.tenantId===tenantId&&item.productId===product.id&&item.variantId===variant.id)
+        const sameImport=variant.importedStock!==undefined&&variant.importedStock===old?.importedStock&&variant.stock===variant.importedStock
+        if(variant.stock!==null && (!position || !sameImport && variant.stock!==(position?.onHand??old?.stock))) {
+          if(position && variant.stock<position.reserved)throw new Error('Stock cannot be lower than active reservations')
+          if(position)position.onHand=variant.stock
+          else inventory.push({tenantId,productId:product.id,variantId:variant.id,onHand:variant.stock,reserved:0})
+        }
+        if(variant.stock===null && old?.stock!==null && position && !sameImport) {
+          if(position.reserved>0)throw new Error('Cannot clear inventory with active reservations')
+          inventory.splice(inventory.indexOf(position),1)
+        }
+      }
+      const removed=previous?.variants.filter(old=>!product.variants.some(item=>item.id===old.id))??[]
+      if(removed.some(old=>inventory.some(position=>position.tenantId===tenantId&&position.productId===product.id&&position.variantId===old.id&&position.reserved>0)))throw new Error('Cannot remove a variant with active reservations')
+      if(index<0)next.push(structuredClone(product));else next[index]=structuredClone(product)
+    }
+    const tenantProducts=next.filter(item=>item.tenantId===tenantId),keys=tenantProducts.flatMap(item=>[item.sku,...item.variants.map(variant=>variant.sku)]).map(sku=>sku.toUpperCase())
+    if(new Set(keys).size!==keys.length)throw new Error('Product and variant SKUs must be unique within a tenant')
+    if(new Set(tenantProducts.map(item=>item.slug)).size!==tenantProducts.length)throw new Error('Product slugs must be unique within a tenant')
+    this.db.products.splice(0,this.db.products.length,...next);this.db.inventory.splice(0,this.db.inventory.length,...inventory)
+    return this.listProducts(tenantId)
+  }
   async getAvailability(tenantId: string, productId: string, variantId?: string) { return this.availability(tenantId, productId, variantId) }
   async getPosition(tenantId: string, productId: string, variantId?: string) { return this.db.inventory.find((item) => item.tenantId === tenantId && item.productId === productId && item.variantId === variantId) ?? null }
   private availability(tenantId: string, productId: string, variantId?: string) { const item = this.db.inventory.find((entry) => entry.tenantId === tenantId && entry.productId === productId && entry.variantId === variantId); return item ? Math.max(0, item.onHand - item.reserved) : null }
-  private async mutate(tenantId: string, items: readonly InventoryReservationItem[], change: (position: InventoryPosition, amount: number) => InventoryPosition) { const positions = items.map((item) => { const position = this.db.inventory.find((entry) => entry.tenantId === tenantId && entry.productId === item.productId && entry.variantId === item.variantId); if (!position) throw new Error('Inventory position not found in tenant'); return { item, position, next: change(position, item.quantity) } }); for (const { position, next } of positions) Object.assign(position, next); return positions.map(({ next }) => next) }
+  private async mutate(tenantId: string, items: readonly InventoryReservationItem[], change: (position: InventoryPosition, amount: number) => InventoryPosition) { const grouped=new Map<string,InventoryReservationItem>();for(const item of items){const key=JSON.stringify([item.productId,item.variantId]);const previous=grouped.get(key);grouped.set(key,{...item,quantity:item.quantity+(previous?.quantity??0)})}const positions = [...grouped.values()].map((item) => { const position = this.db.inventory.find((entry) => entry.tenantId === tenantId && entry.productId === item.productId && entry.variantId === item.variantId); if (!position) throw new Error('Inventory position not found in tenant'); return { item, position, next: change(position, item.quantity) } }); for (const { position, next } of positions) Object.assign(position, next); return positions.map(({ next }) => next) }
   reserveInventory(tenantId: string, items: readonly InventoryReservationItem[]) { return this.mutate(tenantId, items, reservePosition) }
   releaseInventory(tenantId: string, items: readonly InventoryReservationItem[]) { return this.mutate(tenantId, items, releasePosition) }
   commitInventory(tenantId: string, items: readonly InventoryReservationItem[]) { return this.mutate(tenantId, items, commitPosition) }

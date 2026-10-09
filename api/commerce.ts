@@ -11,13 +11,13 @@ const operations=new Set<CommerceGatewayOperation>([
  'searchProducts','getProductDetails','checkAvailability','createOrUpdateCustomer','createOpportunity','createOrderDraft',
  'attachPaymentProof','getOrderStatus','requestHumanEscalation','resolveCustomerIdentity',
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
- 'listProducts','syncFloesCatalog','updateProduct',
+ 'listProducts','syncFloesCatalog','updateProduct','previewCatalogImport','importCatalog',
  'ownerDashboard','listOrders','getOrderDetail','listPaymentReviews',
  'listCustomers','listOpportunities','listExceptions',
 ])
 const humanOperations=new Set<CommerceGatewayOperation>([
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
- 'listProducts','syncFloesCatalog','updateProduct',
+ 'listProducts','syncFloesCatalog','updateProduct','previewCatalogImport','importCatalog',
  'ownerDashboard','listOrders','getOrderDetail','listPaymentReviews',
  'listCustomers','listOpportunities','listExceptions',
 ])

@@ -7,6 +7,8 @@ import type {
 } from '../domain/index.js'
 import { effectiveSalePrice } from '../domain/index.js'
 import { floesCatalog } from '../data/catalog/floes.js'
+import { previewCatalogImport, type CatalogRow } from './catalogImport.js'
+import { commerceCatalogView } from './commerceCatalogView.js'
 
 import type { CommercialApplication } from './commercial.js'
 import type { OrderApplication } from './orders.js'
@@ -34,6 +36,8 @@ export type CommerceGatewayOperation =
   | 'listProducts'
   | 'syncFloesCatalog'
   | 'updateProduct'
+  | 'previewCatalogImport'
+  | 'importCatalog'
   | 'ownerDashboard'
   | 'listOrders'
   | 'getOrderDetail'
@@ -53,15 +57,6 @@ export interface CommerceGatewayRequest {
 }
 
 const money=(cents:number,currency:string)=>({amount:cents/100,currency})
-const product=(item:CommerceProduct)=>({
- productId:item.id,name:item.name,sku:item.sku,slug:item.slug,description:item.description,commercialSummary:item.commercialSummary,category:item.category,
- price:item.salePriceCents===null?null:money(item.salePriceCents,item.currency),pricingStatus:item.pricingStatus,
- available:item.fulfillmentMode==='MADE_TO_ORDER'||item.fulfillmentMode==='SERVICE'||item.fulfillmentMode==='DIGITAL'||item.fulfillmentMode==='HYBRID'||item.variants.some((variant)=>variant.stock!==null&&variant.stock>0),
- availabilityStatus:item.fulfillmentMode==='STOCK'&&item.variants.length>0&&item.variants.every((variant)=>variant.stock===null)?'NOT_CONFIGURED':'AVAILABLE_BY_MODE',
- imageUrl:item.images[0]?.url,images:item.images,fulfillmentMode:item.fulfillmentMode,status:item.status,visibility:item.visibility,
- variants:item.variants.filter((variant)=>variant.status==='ACTIVE'&&variant.visibility==='VISIBLE').map((variant)=>({variantId:variant.id,name:variant.color??variant.sku,color:variant.color,sku:variant.sku,price:effectiveSalePrice(item,variant)===null?null:money(effectiveSalePrice(item,variant)!,item.currency),pricingStatus:effectiveSalePrice(item,variant)===null?'PENDING':'READY',available:['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(variant.fulfillmentMode??item.fulfillmentMode)||(variant.stock!==null&&variant.stock>0),availableQuantity:variant.stock,availabilityStatus:variant.stock===null?'NOT_CONFIGURED':variant.stock>0?'AVAILABLE':'OUT_OF_STOCK',images:variant.images,fulfillmentMode:variant.fulfillmentMode??item.fulfillmentMode})),
- metadata:{fulfillmentMode:item.fulfillmentMode,pricingStatus:item.pricingStatus},
-})
 const customer=(item:Customer)=>({customerId:item.id,name:item.name,phone:item.phone,email:item.email})
 const actor=(tenantId:string):ActorContext=>({actorId:'ganobot-commerce',role:'AUTOMATION',tenantId})
 const humanActor=(tenantId:string,requestActor?:ActorContext):ActorContext=>{
@@ -83,14 +78,16 @@ const status=(order:Order)=>({
  status:order.orderStatus==='CANCELLED'?'cancelled':
   order.fulfillmentStatus==='DELIVERED'?'delivered':
   order.fulfillmentStatus==='DISPATCHED'?'dispatched':
-  order.fulfillmentStatus==='PREPARING'||order.fulfillmentStatus==='READY'?'preparing':
+  order.fulfillmentStatus==='READY'?'ready-for-dispatch':
+  order.fulfillmentStatus==='PREPARING'?'preparing':
   order.paymentStatus==='PAID'?'paid':
   order.paymentStatus==='PROOF_RECEIVED'||order.paymentStatus==='UNDER_REVIEW'?'payment-under-review':
   order.orderStatus==='CREATED'?'draft':'awaiting-payment',
  paymentStatus:order.paymentStatus==='PAID'?'approved':order.paymentStatus==='REJECTED'?'rejected':
   order.paymentStatus==='PROOF_RECEIVED'||order.paymentStatus==='UNDER_REVIEW'?'pending_review':'unpaid',
  fulfillmentStatus:order.fulfillmentStatus==='DELIVERED'?'delivered':order.fulfillmentStatus==='DISPATCHED'?'dispatched':
-  order.fulfillmentStatus==='PREPARING'||order.fulfillmentStatus==='READY'?'preparing':'unfulfilled',
+  order.fulfillmentStatus==='READY'?'ready-for-dispatch':order.fulfillmentStatus==='PREPARING'?'preparing':'unfulfilled',
+ courier:order.fulfillmentDetails?.courier,trackingCode:order.fulfillmentDetails?.trackingCode,
  total:money(order.grandTotalCents,order.currency),
 })
 
@@ -108,10 +105,21 @@ export class CommerceGateway {
   switch(request.operation){
    case 'searchProducts':{
     const q=optionalString(input.query)??''
-    const limit=typeof input.limit==='number'?Math.max(1,Math.min(20,Math.floor(input.limit))):10
-    return (await this.commerce.searchProducts(tenantId,q)).slice(0,limit).map(product)
+    const limit=typeof input.limit==='number'?Math.max(1,Math.min(500,Math.floor(input.limit))):10
+    return Promise.all((await this.commerce.searchProducts(tenantId,q)).slice(0,limit).map(item => commerceCatalogView(item,this.commerce)))
    }
    case 'listProducts': return this.commerce.listProducts(tenantId)
+   case 'previewCatalogImport':
+   case 'importCatalog':{
+    if (!Array.isArray(input.rows)) throw new Error('rows is required')
+    const urls = input.imageUrls && typeof input.imageUrls === 'object' && !Array.isArray(input.imageUrls) ? input.imageUrls as Record<string,string> : {}
+    if (Object.values(urls).some(url => typeof url !== 'string' || !url.startsWith('https://'))) throw new Error('Image manifest must contain HTTPS URLs')
+    const preview = previewCatalogImport(tenantId,input.rows as CatalogRow[],await this.commerce.listProducts(tenantId),urls)
+    if(request.operation==='previewCatalogImport') return preview
+    if(preview.issues.some(issue=>issue.severity==='ERROR')) throw new Error('Import contains errors; resolve preview before committing')
+    await this.commerce.upsertProducts(tenantId,preview.products)
+    return {...preview, committed:true}
+   }
    case 'syncFloesCatalog':{
     if(tenantId!=='tenant-floes')throw new Error('FLOES catalog import is restricted to tenant-floes')
     const existing=await this.commerce.listProducts(tenantId);const ids=new Set(existing.map((item)=>item.id));const missing=floesCatalog.filter((item)=>!ids.has(item.id))
@@ -121,7 +129,8 @@ export class CommerceGateway {
     const raw=input.product
     if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('product is required')
     const productInput=raw as Partial<CommerceProduct>
-    const existing=typeof productInput.id==='string'?await this.commerce.getProduct(tenantId,productInput.id):null
+    if (productInput.tenantId && productInput.tenantId !== tenantId) throw new Error('Cross-tenant catalog mutation rejected')
+    const existing=typeof productInput.id==='string'?(await this.commerce.listProducts(tenantId)).find(item=>item.id===productInput.id):null
     const candidate={...(existing??{}),...productInput,tenantId} as CommerceProduct
     if(!candidate.id||!candidate.name||!candidate.sku||!candidate.slug)throw new Error('Product id, name, sku and slug are required')
     await this.commerce.upsertProducts(tenantId,[candidate])
@@ -129,7 +138,7 @@ export class CommerceGateway {
    }
    case 'getProductDetails':{
     const item=await this.commerce.getProduct(tenantId,requiredString(input.productId,'productId'))
-    return item?product(item):undefined
+    return item?commerceCatalogView(item,this.commerce):undefined
    }
    case 'checkAvailability':{
     const productId=requiredString(input.productId,'productId');const variantId=optionalString(input.variantId)
@@ -140,7 +149,7 @@ export class CommerceGateway {
     if(variantId&&!variant)return{productId,variantId,available:false,reason:'variant_not_found'}
     const mode=variant?.fulfillmentMode??item.fulfillmentMode
     const available=await this.commerce.getAvailability(tenantId,productId,variantId)
-    const canFulfill=['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(mode)||(available!==null&&available>=quantity)
+    const canFulfill=variant?.available!==false&&(['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(mode)||(available!==null&&available>=quantity))
     const reason=available===null&&mode==='STOCK'?'inventory_not_configured':mode==='HYBRID'&&(available===null||available<quantity)?'made_to_order_fallback':canFulfill&&mode==='MADE_TO_ORDER'?'made_to_order':canFulfill?undefined:'insufficient_stock'
     return{productId,variantId,available:canFulfill,...(mode==='STOCK'||mode==='HYBRID'?{availableQuantity:available}:{}),availabilityStatus:available===null?'NOT_CONFIGURED':available>=quantity?'AVAILABLE':'OUT_OF_STOCK',reason,fulfillmentMode:mode,pricingStatus:item.pricingStatus}
    }
@@ -193,7 +202,7 @@ export class CommerceGateway {
      if(typeof line!=='object'||!line)throw new Error('Invalid order line')
      const record=line as Record<string,unknown>;const quantity=typeof record.quantity==='number'?Math.floor(record.quantity):0
      if(quantity<1)throw new Error('quantity must be positive')
-     return{productId:requiredString(record.productId,'productId'),variantId:optionalString(record.variantId),quantity}
+     return{productId:requiredString(record.productId,'productId'),variantId:optionalString(record.variantId),size:optionalString(record.size),quantity}
     })
     if(!opportunityId){
      if(items.length===0)throw new Error('Order lines are required')

@@ -17,9 +17,10 @@ export interface Attribution {
   conversationId?: EntityId
 }
 export interface OrderItemSnapshot {
-  productId: EntityId; variantId?: EntityId; productName: string; variantName?: string
+  productId: EntityId; variantId?: EntityId; productName: string; variantName?: string; size?: string
   quantity: number; unitPriceCents: number; discountCents: number; lineSubtotalCents: number; lineTotalCents: number
   imageUrl?: string; externalProductId?: string; externalVariantId?: string
+  exchangePolicy?: { allowed: boolean | null; conditions: string }
 }
 export interface OrderTotals { productSubtotalCents: number; discountTotalCents: number; shippingTotalCents: number; taxTotalCents: number; otherPassThroughCents: number; grandTotalCents: number }
 export interface ManagedOrderSnapshot { managed: boolean; managedBy: ManagedBy; managedOrderRateBps: number | null; managedRevenueBaseCents: number; managementFeeCents: number | null }
@@ -30,6 +31,7 @@ export interface Order extends TenantScoped, Timestamped, OrderTotals {
   attributionSnapshot: Readonly<Attribution>; commercialAgreementSnapshot?: Readonly<CommercialAgreementSnapshot>; managedSnapshot: Readonly<ManagedOrderSnapshot>
   confirmedAt?: ISODateTime; cancelledAt?: ISODateTime; cancellationReason?: string; completedAt?: ISODateTime
   fulfillmentDetails?: FulfillmentDetails
+  followUp?: { status: 'FOLLOW_UP'; outcome: 'RECEIVED' | 'SATISFIED' | 'ISSUE' | 'HUMAN_REQUESTED'; note?: string; recordedAt: ISODateTime }
 }
 export interface PaymentProof extends TenantScoped {
   id: EntityId; paymentId: EntityId; orderId: EntityId; type: 'TRANSFER' | 'CASH_DEPOSIT' | 'OTHER'; reference?: string; assetReference?: string
@@ -39,7 +41,9 @@ export interface Payment extends TenantScoped, Timestamped {
   id: EntityId; orderId: EntityId; amountCents: number; currency: CurrencyCode; status: PaymentStatus
   paidAt?: ISODateTime; rejectedAt?: ISODateTime; refundedAt?: ISODateTime; confirmedBy?: EntityId
 }
-export interface FulfillmentDetails { courier?: string; trackingCode?: string; dispatchedAt?: ISODateTime; deliveredAt?: ISODateTime }
+export interface DeliveryAddress { name: string; phone: string; city: string; province: string; address: string; reference?: string }
+export type DeliveryMode = 'SERVIENTREGA' | 'PICKUP' | 'LOCAL_DELIVERY'
+export interface FulfillmentDetails { courier?: string; trackingCode?: string; dispatchedAt?: ISODateTime; deliveredAt?: ISODateTime; deliveryMode?: DeliveryMode; deliveryAddress?: DeliveryAddress }
 
 const assertCents = (value: number, label: string) => { if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer in cents`) }
 export function createOrderItemSnapshot(input: Omit<OrderItemSnapshot, 'lineSubtotalCents' | 'lineTotalCents' | 'discountCents'> & { discountCents?: number }): OrderItemSnapshot {

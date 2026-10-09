@@ -4,6 +4,9 @@ import type { FulfillmentMode } from '../../domain/inventory'
 import { adminCall } from '../../services/adminApi'
 import { tenantDefinitions, tenantIds } from '../../config/tenantRegistry.js'
 import { cleanImages, moveImage, productSlug } from './productEditor'
+import { CatalogImportPanel } from './CatalogImportPanel'
+import { CommercialMetadataEditor, metadataFromProduct, metadataToProduct } from './CommercialMetadataEditor'
+import { CatalogImageUpload } from './CatalogImageUpload'
 
 const stores = tenantIds.map(id => [id, tenantDefinitions[id].name] as const)
 
@@ -17,6 +20,8 @@ interface VariantDraft {
   stock: string
   priceMode: VariantPriceMode
   price: string
+  promotion: string
+  sizes: string
   fulfillmentMode: FulfillmentMode | ''
   images: ImageDraft[]
   status: CommerceProduct['status']
@@ -62,6 +67,8 @@ const blankVariant = (): VariantDraft => ({
   stock: '',
   priceMode: 'INHERIT',
   price: '',
+  promotion: '',
+  sizes: '',
   fulfillmentMode: '',
   images: [],
   status: 'ACTIVE',
@@ -153,6 +160,8 @@ const productToDraft = (product: CommerceProduct): ProductDraft => ({
         ? ''
         : String(variant.salePriceCents / 100),
     fulfillmentMode: variant.fulfillmentMode ?? '',
+    promotion: variant.promotionalPriceCents==null?'':String(variant.promotionalPriceCents/100),
+    sizes: variant.sizes?.join(', ')??variant.size??'',
     images: variant.images.map(image => blankImage(image)),
     status: variant.status,
     visibility: variant.visibility,
@@ -196,6 +205,7 @@ export function CatalogAdminPage() {
   const [tenant, setTenant] = useState<string>('tenant-floes')
   const [products, setProducts] = useState<readonly CommerceProduct[]>([])
   const [draft, setDraft] = useState<ProductDraft>(emptyDraft)
+  const [metadata,setMetadata]=useState(()=>metadataFromProduct())
   const [editingProduct, setEditingProduct] = useState<CommerceProduct | null>(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | CommerceProduct['status']>('ALL')
@@ -237,6 +247,7 @@ export function CatalogAdminPage() {
   const resetEditor = () => {
     setEditingProduct(null)
     setDraft(emptyDraft())
+    setMetadata(metadataFromProduct())
     setError('')
   }
 
@@ -367,6 +378,8 @@ export function CatalogAdminPage() {
         visibility: variant.visibility,
         images: cleanImages(variant.images),
         stock,
+        sizes:variant.sizes.split(/[,;|\s]+/).map(size=>size.trim().toUpperCase()).filter(Boolean),
+        promotionalPriceCents:cents(variant.promotion),
         ...(variant.fulfillmentMode
           ? { fulfillmentMode: variant.fulfillmentMode }
           : {}),
@@ -427,9 +440,10 @@ export function CatalogAdminPage() {
 
     try {
       await adminCall(
+        // Metadata is validated by the same server domain as Excel imports.
         'updateProduct',
         tenant,
-        { product },
+        { product: {...product,...metadataToProduct(metadata)} },
         crypto.randomUUID()
       )
       resetEditor()
@@ -444,6 +458,7 @@ export function CatalogAdminPage() {
   const edit = (product: CommerceProduct) => {
     setEditingProduct(product)
     setDraft(productToDraft(product))
+    setMetadata(metadataFromProduct(product))
     setError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -482,6 +497,7 @@ export function CatalogAdminPage() {
         </div>
       </div>
 
+      <CatalogImportPanel key={tenant} tenantId={tenant} products={products} onImported={load} />
       <section className="panel product-editor">
         <header className="product-editor-header">
           <div>
@@ -729,7 +745,7 @@ export function CatalogAdminPage() {
             </div>
           </div>
 
-          <p className="media-note">Las imágenes se almacenan mediante URL externa. La carga directa de archivos podrá habilitarse posteriormente.</p>
+          <CatalogImageUpload tenantId={tenant} model={draft.name} onUploaded={image=>updateProductImages([blankImage(image),...draft.images])}/>
           <MediaEditor images={draft.images} onChange={updateProductImages} />
         </div>
 
@@ -892,6 +908,9 @@ export function CatalogAdminPage() {
                     </label>
 
                     <div className="variant-images">
+                      <label className="field"><span>Tallas documentadas</span><input value={variant.sizes} placeholder="XS, S, M, L, XL" onChange={event=>updateVariant(variant.localId,{sizes:event.target.value})}/></label>
+                      <label className="field"><span>Precio promocional</span><input inputMode="decimal" value={variant.promotion} onChange={event=>updateVariant(variant.localId,{promotion:event.target.value})}/></label>
+                      <CatalogImageUpload tenantId={tenant} model={draft.name} color={variant.color} onUploaded={image=>updateVariantImages(variant.localId,[blankImage(image),...variant.images])}/>
                       <span className="field-label">Imágenes de la variante</span>
                       <MediaEditor compact images={variant.images} onChange={images => updateVariantImages(variant.localId, images)} />
                     </div>
@@ -903,6 +922,7 @@ export function CatalogAdminPage() {
         </div>
 
         {error && <div className="error-banner">{error}</div>}
+        <CommercialMetadataEditor value={metadata} onChange={setMetadata}/>
 
         <footer className="product-editor-footer">
           <div>

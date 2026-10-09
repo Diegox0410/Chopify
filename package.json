@@ -12,11 +12,14 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "exceljs": "^4.4.0",
+    "fflate": "^0.8.3",
     "firebase": "^12.19.0",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-router-dom": "latest",
+    "sharp": "^0.35.5",
     "zustand": "latest"
   },
   "devDependencies": {
@@ -31,6 +34,7 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "jsdom": "latest",
+    "tsx": "^4.23.15",
     "typescript": "latest",
     "typescript-eslint": "latest",
     "vite": "latest",

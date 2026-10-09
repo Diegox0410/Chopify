@@ -45,16 +45,17 @@ export default async function handler(req: Request, res: Response) {
     const products = await runtime.execute({
       operation: 'searchProducts',
       tenantId,
-      input: { query: '', limit: 100 },
+      input: { query: '', limit: 500 },
     }) as readonly Record<string, unknown>[]
 
     const slug = value(req.query?.slug)
+    const publicProducts = products.map(item => { const safe = { ...item }; delete safe.ganoBotNotes; return safe })
 
     res.statusCode = 200
     res.end(JSON.stringify(
       slug
-        ? products.find((item) => item.slug === slug) ?? null
-        : products,
+        ? publicProducts.find((item) => item.slug === slug) ?? null
+        : publicProducts,
     ))
   } catch (error) {
     res.statusCode = 500

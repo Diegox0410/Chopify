@@ -81,7 +81,7 @@ function buildGateway(state:CommerceRuntimeState){
 const MUTATIONS=new Set<CommerceGatewayRequest['operation']>([
  'createOrUpdateCustomer','createOpportunity','createOrderDraft','attachPaymentProof','requestHumanEscalation','resolveCustomerIdentity',
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
- 'syncFloesCatalog','updateProduct',
+ 'syncFloesCatalog','updateProduct','importCatalog',
 ])
 export class PersistentCommerceRuntime{
  constructor(private readonly store:CommerceStateStore,private readonly maxAttempts=4){}
