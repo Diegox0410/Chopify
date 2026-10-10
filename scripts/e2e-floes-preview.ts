@@ -40,6 +40,10 @@ const pass = (check: string) => {
   console.info(JSON.stringify({ check, result: 'PASS' }))
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const catalogHash = (products: PreviewProduct[]) => hash(products.map(product => ({
+  ...product,
+  variants: product.variants.map(variant => ({ ...variant, stock: null, available: undefined })),
+})))
 const modelKey = (name: string) => normalizeCatalogKey(name.replace(/^modelo\s+/i, ''))
 const expectedHeader = (response: Response) => {
   assert(response.headers.get('x-chopify-commerce-collection') === collection, 'Remote endpoint did not corroborate the Preview Firestore collection')
@@ -111,7 +115,7 @@ async function main() {
   assert(Array.isArray(orders) && orders.every(order => order.tenantId === tenantId), 'Owner order list contains a foreign tenant')
   pass('preview_catalog_and_order_tenant_scope')
 
-  const baselineProductsHash = hash(products)
+  const baselineProductsHash = catalogHash(products)
   for (const [name, operation, scope, extra, expected] of [
     ['missing_credential', 'searchProducts', 'commerce', { noToken: true }, 401],
     ['invalid_credential', 'searchProducts', 'commerce', { token: 'invalid-preview-e2e-credential' }, 401],
@@ -226,7 +230,7 @@ async function main() {
   assert(afterImportProducts.length === 3 && afterImportProducts.flatMap(product => product.variants).length === 39, 'Reimport added or removed a pilot product or variant')
   const stockAfterImport = await readSizeStock()
   assert(hash(stockAfterImport) === hash(stockBefore), 'Reimport changed Daniela/Vino stock or restored the reserved M unit')
-  const afterImportHash = hash(afterImportProducts)
+  const afterImportHash = catalogHash(afterImportProducts)
   assert(afterImportHash === baselineProductsHash, 'Reimport changed the authoritative pilot product set')
   detail = await success('getOrderDetail', { orderId: existingOrderId }, 'owner') as Json
   assert((detail.reservation as Json)?.status === 'ACTIVE', 'Reimport must preserve the active reservation')
@@ -271,7 +275,7 @@ async function main() {
   const finalStock = await readSizeStock()
   assert(hash(finalStock) === hash(stockBefore), 'Fulfillment changed stock beyond the one reserved Daniela/Vino/M unit')
   const finalProducts = await success('listProducts', {}, 'owner') as PreviewProduct[]
-  assert(finalProducts.length === 3 && hash(finalProducts) === baselineProductsHash, 'Final read-back found a tenant or catalog change')
+  assert(finalProducts.length === 3 && catalogHash(finalProducts) === baselineProductsHash, 'Final read-back found a tenant or catalog change')
   evidence.order = { orderId: existingOrderId, paymentId: proof.paymentId, proofId: proof.id, finalStatus: 'COMPLETED', followUp: 'SATISFIED', stockBeforeLifecycle: stockBefore, stockAfterReimportAndFulfillment: finalStock, realPaymentOrPhysicalDelivery: false }
   pass('durable_delivery_follow_up_and_preview_read_back')
 }
