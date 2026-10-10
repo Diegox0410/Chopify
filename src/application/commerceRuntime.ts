@@ -46,7 +46,6 @@ export function migrateCommerceState(tenantId:string,state:unknown):CommerceRunt
  if(!legacy.commercial||!legacy.orders)throw new Error('Commerce state is incomplete')
  const seeded=createTenantCommerceState(tenantId)
  const products=scoped(tenantId,'products',legacy.orders.products??seeded.orders.products)
- const mergedProducts=tenantId==='tenant-floes'?[...products,...seeded.orders.products.filter(seed=>!products.some(item=>item.id===seed.id))]:products
  const customers=scoped(tenantId,'customers',legacy.commercial.customers);const customerIds=new Set(customers.map(item=>item.id))
  const identities=scoped(tenantId,'identities',legacy.commercial.identities)
  const conversations=scoped(tenantId,'conversations',legacy.commercial.conversations)
@@ -67,7 +66,7 @@ export function migrateCommerceState(tenantId:string,state:unknown):CommerceRunt
  requireReferences('order reference',[...payments,...proofs,...reservations].map(item=>item.orderId),orderIds)
  requireReferences('published order reference',legacy.orders.publishedOrderIds,orderIds)
  return{schemaVersion:3,commercial:{tenants:[structuredClone(seeded.commercial.tenants[0])],customers,
-  identities,conversations,opportunities,activities,notes,tasks,escalations},orders:{products:mergedProducts,orders,
+  identities,conversations,opportunities,activities,notes,tasks,escalations},orders:{products,orders,
   payments,proofs,reservations,idempotency,inventory,agreements,audit,publishedOrderIds:[...legacy.orders.publishedOrderIds]}}
 }
 function buildGateway(state:CommerceRuntimeState){
@@ -88,6 +87,7 @@ export class PersistentCommerceRuntime{
  async execute(request:CommerceGatewayRequest):Promise<unknown>{
   for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
    const loaded=await this.store.load(request.tenantId);const state=loaded?.state??createTenantCommerceState(request.tenantId)
+   if(!loaded&&request.tenantId==='tenant-floes'&&request.operation==='importCatalog')state.orders.products=[]
    const result=await buildGateway(state).execute(request)
    const shouldPersist=MUTATIONS.has(request.operation)||!loaded||loaded.migrated===true
    if(!shouldPersist)return result

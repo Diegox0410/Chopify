@@ -10,6 +10,7 @@
     "test": "vitest run && node --test tests/*.test.mjs",
     "sync:floes-public-images": "node --import tsx scripts/sync-floes-public-images.ts",
     "pilot:floes:dry-run": "node --import tsx scripts/dry-run-floes-public-catalog.ts",
+    "pilot:floes:import-preview": "node --env-file=.env.local --import tsx scripts/import-floes-preview.ts",
     "test:watch": "vitest"
   },
   "dependencies": {
