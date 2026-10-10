@@ -18,4 +18,50 @@ describe('Persistent Commerce Runtime production state',()=>{
  it('requires explicit currency for new products and preserves it on partial edits',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const withoutCurrency:Partial<typeof mgProduct>={...mgProduct};delete withoutCurrency.currency;await expect(runtime.execute(req('updateProduct',{product:withoutCurrency},'missing-currency','tenant-mg'))).rejects.toThrow(/currency/i);await seedMg(runtime);await runtime.execute(req('updateProduct',{product:{id:mgProduct.id,name:'Nombre editado'}},'partial-edit','tenant-mg'));const products=await runtime.execute(req('listProducts',{},'products','tenant-mg')) as typeof mgProduct[];expect(products[0]).toMatchObject({name:'Nombre editado',currency:'COP',salePriceCents:10000,costCents:null})})
  it('preserves slug, stable variant ids, nullable stock and image metadata on product edits',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const product={...mgProduct,images:[{url:'https://cdn.example.com/main.jpg',alt:'Principal'}],variants:[{id:'variant-stable',sku:'MG-VAR-1',color:null,status:'ACTIVE' as const,visibility:'VISIBLE' as const,stock:null,images:[{url:'https://cdn.example.com/variant.jpg',alt:'Variante'}]}]};await runtime.execute(req('updateProduct',{product},'create-rich','tenant-mg'));await runtime.execute(req('updateProduct',{product:{id:product.id,name:'Nombre nuevo',costCents:null,salePriceCents:null,pricingStatus:'PENDING'}},'edit-rich','tenant-mg'));const [saved]=await runtime.execute(req('listProducts',{},'rich-list','tenant-mg')) as Array<typeof product&{salePriceCents:number|null;pricingStatus:string}>;expect(saved).toMatchObject({slug:'producto-real',currency:'COP',costCents:null,salePriceCents:null,pricingStatus:'PENDING',images:product.images});expect(saved.variants[0]).toMatchObject({id:'variant-stable',stock:null,images:product.variants[0].images});expect(saved.variants[0]).not.toHaveProperty('salePriceCents')})
  it('keeps explicit null and positive variant prices distinct from inherited undefined',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const product={...mgProduct,variants:[{id:'inherit',sku:'MG-INHERIT',color:null,status:'ACTIVE' as const,visibility:'VISIBLE' as const,stock:null,images:[]},{id:'pending',sku:'MG-PENDING',color:null,status:'ACTIVE' as const,visibility:'VISIBLE' as const,stock:0,images:[],salePriceCents:null},{id:'priced',sku:'MG-PRICED',color:null,status:'ACTIVE' as const,visibility:'VISIBLE' as const,stock:2,images:[],salePriceCents:12500}]};await runtime.execute(req('updateProduct',{product},'variant-prices','tenant-mg'));const [saved]=await runtime.execute(req('listProducts',{},'variant-list','tenant-mg')) as Array<typeof product>;expect(saved.variants[0]).not.toHaveProperty('salePriceCents');expect(saved.variants[1].salePriceCents).toBeNull();expect(saved.variants[2].salePriceCents).toBe(12500)})
+ it('reports real stock per documented size and rejects an undocumented size',async()=>{
+  const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore())
+  await runtime.execute(req('importCatalog',{rows:[{nombre_producto:'Modelo Daniela',sku:'FLOES-SIZE',color:'Vino',moneda:'COP',activo:'Sí',disponible:'Sí',tipo_entrega:'Stock',talla:'XS-M',stock_individual_por_talla_y_por_color:10,precio_venta:100,imagen_1:'VINO.jpeg'}],imageUrls:{'VINO.jpeg':'https://floes-commerce.vercel.app/catalogo/floes/daniela/vino.jpeg'}},'size-import'))
+  const [product]=await runtime.execute(req('listProducts',{},'size-products')) as Array<{id:string;variants:Array<{id:string}>}>
+  const input={productId:product.id,variantId:product.variants[0].id,quantity:1}
+  expect(await runtime.execute(req('checkAvailability',input,'size-aggregate'))).toMatchObject({available:true,availableQuantity:20})
+  expect(await runtime.execute(req('checkAvailability',{...input,size:'xs'},'size-xs'))).toMatchObject({size:'XS',available:true,availableQuantity:10})
+  expect(await runtime.execute(req('checkAvailability',{...input,size:'XL'},'size-xl'))).toMatchObject({size:'XL',available:false,availableQuantity:0,reason:'size_not_documented'})
+ })
+ it('exposes the global FLOES garment tables without duplicating variants or inferring another tenant guide',async()=>{
+  const store=new MemoryCommerceStateStore();const runtime=new PersistentCommerceRuntime(store)
+  await runtime.execute(req('importCatalog',{rows:[{nombre_producto:'Modelo Daniela',sku:'FLOES-GUIDE',color:'Vino',moneda:'USD',activo:'Sí',disponible:'Sí',tipo_entrega:'Stock',talla:'XS-S-M-L-XL',stock_individual_por_talla_y_por_color:10,precio_venta:39.99,guia_tallas:'Guía global FLOES',imagen_1:'VINO.jpeg'}],imageUrls:{'VINO.jpeg':'https://floes-commerce.vercel.app/catalogo/floes/daniela/vino.jpeg'}},'guide-import'))
+  const [product]=await runtime.execute(req('searchProducts',{},'guide-search')) as Array<{productId:string;sizeGuide:import('../domain/commerce.js').FlatSizeGuide;variants:unknown[]}>
+  expect(product.variants).toHaveLength(1)
+  expect(product.sizeGuide.blouse?.map(row=>[row.size,...Object.values(row.measurementsCm)])).toEqual([['XS',45,40,46,59,17],['S',48,42,48,59,18],['M',50,45,52,60,21],['L',53,48,56,62,22],['XL',57,54,62,70,23]])
+  expect(product.sizeGuide.trousers?.map(row=>[row.size,...Object.values(row.measurementsCm)])).toEqual([['XS',45,48,29,95,19],['S',47,50,30,97,19],['M',50,54,32,100,20],['L',53,57,34,104,20],['XL',57,61,36,105,21]])
+  expect(product.sizeGuide.instructions).toContain('no las multipliques por dos')
+  expect(await runtime.execute(req('getProductDetails',{productId:product.productId},'guide-details'))).toMatchObject({sizeGuide:product.sizeGuide})
+  expect((await store.load('tenant-floes'))?.state.orders.products[0].sizeGuide?.blouse).toBeUndefined()
+  await seedMg(runtime,'guide-mg')
+  expect(await runtime.execute(req('getProductDetails',{productId:mgProduct.id},'guide-mg-read','tenant-mg'))).toHaveProperty('sizeGuide',undefined)
+ })
+ it('retains one opportunity on order retries and persists Owner audit, delivery and post-delivery follow-up',async()=>{
+  const store=new MemoryCommerceStateStore();const runtime=new PersistentCommerceRuntime(store);await seedMg(runtime)
+  const customer=await runtime.execute(req('createOrUpdateCustomer',{name:'Lifecycle'},'life-c','tenant-mg')) as {customerId:string}
+  const orderInput={customerId:customer.customerId,lines:[{productId:mgProduct.id,quantity:1}]}
+  const order=await runtime.execute(req('createOrderDraft',orderInput,'life-order','tenant-mg')) as {orderId:string}
+  expect(await runtime.execute(req('createOrderDraft',orderInput,'life-order','tenant-mg'))).toEqual(order)
+  expect((await store.load('tenant-mg'))?.state.commercial.opportunities).toHaveLength(1)
+  await expect(runtime.execute(req('updateOrderDelivery',{orderId:order.orderId,customerId:'foreign-customer',deliveryMode:'PICKUP'},'life-wrong-customer','tenant-mg'))).rejects.toThrow('Order does not belong to customer')
+  await expect(runtime.execute(req('updateOrderDelivery',{orderId:order.orderId,customerId:customer.customerId,deliveryMode:'SERVIENTREGA'},'life-no-address','tenant-mg'))).rejects.toThrow('deliveryAddress is required')
+  await runtime.execute(req('updateOrderDelivery',{orderId:order.orderId,customerId:customer.customerId,deliveryMode:'PICKUP'},'life-delivery','tenant-mg'))
+  await expect(runtime.execute(req('recordOrderFollowUp',{orderId:order.orderId,customerId:customer.customerId,outcome:'SATISFIED'},'life-too-early','tenant-mg'))).rejects.toThrow(/delivered/i)
+  const proof=await runtime.execute(req('attachPaymentProof',{orderId:order.orderId},'life-proof','tenant-mg')) as {proofId:string;paymentId:string}
+  const pending=(await store.load('tenant-mg'))?.state.orders.proofs.find(item=>item.id===proof.proofId)
+  expect(pending).toMatchObject({status:'PENDING'});expect(pending?.reviewedBy).toBeUndefined()
+  const approvalRequest={...req('approvePayment',{paymentId:proof.paymentId,proofId:proof.proofId},'life-approve','tenant-mg'),actor:{actorId:'authenticated-mg-owner',role:'TENANT_OWNER' as const,tenantId:'tenant-mg'}}
+  await runtime.execute(approvalRequest)
+  const approvalAudit=(await store.load('tenant-mg'))?.state.orders.audit.find(item=>item.type==='PAYMENT_APPROVED')
+  expect(approvalAudit).toMatchObject({actorId:'authenticated-mg-owner',actorType:'TENANT_USER',metadata:{correlationId:'c-life-approve',requestId:'life-approve'}})
+  for(const operation of ['startPreparation','markReady','dispatchOrder','markDelivered'] as const)await runtime.execute(req(operation,{orderId:order.orderId},`life-${operation}`,'tenant-mg'))
+  await runtime.execute(req('recordOrderFollowUp',{orderId:order.orderId,customerId:customer.customerId,outcome:'SATISFIED',note:'Cliente confirma recepción'},'life-follow-up','tenant-mg'))
+  const restart=new PersistentCommerceRuntime(store)
+  const detail=await restart.execute(req('getOrderDetail',{orderId:order.orderId},'life-final','tenant-mg')) as {order:{orderStatus:string;followUp:{outcome:string};fulfillmentDetails:{deliveryMode:string}}}
+  expect(detail.order).toMatchObject({orderStatus:'COMPLETED',fulfillmentDetails:{deliveryMode:'PICKUP'},followUp:{outcome:'SATISFIED'}})
+ })
 })

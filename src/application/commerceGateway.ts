@@ -25,6 +25,8 @@ export type CommerceGatewayOperation =
   | 'createOrderDraft'
   | 'attachPaymentProof'
   | 'getOrderStatus'
+  | 'updateOrderDelivery'
+  | 'recordOrderFollowUp'
   | 'requestHumanEscalation'
   | 'resolveCustomerIdentity'
   | 'approvePayment'
@@ -148,6 +150,8 @@ export class CommerceGateway {
     const quantity=typeof input.quantity==='number'?Math.max(1,Math.floor(input.quantity)):1
     const variant=variantId?item.variants.find((entry)=>entry.id===variantId&&entry.status==='ACTIVE'&&entry.visibility==='VISIBLE'):undefined
     if(variantId&&!variant)return{productId,variantId,available:false,reason:'variant_not_found'}
+    const documentedSizes=[...new Set([...(variant?.sizes??[]),...(variant?.size?[variant.size]:[])])].map(value=>value.trim().toUpperCase())
+    if(size&&!documentedSizes.includes(size))return{productId,variantId,size,available:false,availableQuantity:0,availabilityStatus:'OUT_OF_STOCK',reason:'size_not_documented'}
     const mode=variant?.fulfillmentMode??item.fulfillmentMode
     const available=await this.commerce.getAvailability(tenantId,productId,variantId,size)
     const canFulfill=variant?.available!==false&&(['MADE_TO_ORDER','SERVICE','DIGITAL','HYBRID'].includes(mode)||(available!==null&&available>=quantity))
@@ -198,6 +202,12 @@ export class CommerceGateway {
    }
    case 'createOrderDraft':{
     const customerId=requiredString(input.customerId,'customerId');let opportunityId=optionalString(input.opportunityId)
+    const previousKey=request.idempotencyKey??(request.requestId?`${tenantId}:${request.requestId}:createOrderDraft`:undefined)
+    const previous=previousKey?await this.orders.getCreatedOrderByKey(tenantId,previousKey,actor(tenantId)):null
+    if(previous){
+     if(previous.customerId!==customerId)throw new Error('Idempotency key belongs to another customer')
+     return{orderId:previous.id,status:'draft',customerId:previous.customerId,total:money(previous.grandTotalCents,previous.currency)}
+    }
     const lines=Array.isArray(input.lines)?input.lines:[]
     const items=lines.map(line=>{
      if(typeof line!=='object'||!line)throw new Error('Invalid order line')
@@ -230,6 +240,25 @@ export class CommerceGateway {
    case 'getOrderStatus':{
     const order=await this.orders.getOrder(tenantId,requiredString(input.orderId,'orderId'))
     return order?status(order):undefined
+   }
+   case 'updateOrderDelivery':{
+    const orderId=requiredString(input.orderId,'orderId');const customerId=requiredString(input.customerId,'customerId')
+    const deliveryMode=requiredString(input.deliveryMode,'deliveryMode')
+    if(!['SERVIENTREGA','PICKUP','LOCAL_DELIVERY'].includes(deliveryMode))throw new Error('Invalid delivery mode')
+    let deliveryAddress:NonNullable<Order['fulfillmentDetails']>['deliveryAddress']
+    if(deliveryMode!=='PICKUP'){
+     const raw=input.deliveryAddress
+     if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('deliveryAddress is required')
+     const address=raw as Record<string,unknown>
+     deliveryAddress={name:requiredString(address.name,'deliveryAddress.name'),phone:requiredString(address.phone,'deliveryAddress.phone'),city:requiredString(address.city,'deliveryAddress.city'),province:requiredString(address.province,'deliveryAddress.province'),address:requiredString(address.address,'deliveryAddress.address'),reference:optionalString(address.reference)}
+    }
+    return status(await this.orders.updateOrderDelivery(tenantId,orderId,customerId,{deliveryMode:deliveryMode as 'SERVIENTREGA'|'PICKUP'|'LOCAL_DELIVERY',deliveryAddress},actor(tenantId)))
+   }
+   case 'recordOrderFollowUp':{
+    const orderId=requiredString(input.orderId,'orderId');const customerId=requiredString(input.customerId,'customerId');const outcome=requiredString(input.outcome,'outcome')
+    if(!['RECEIVED','SATISFIED','ISSUE','HUMAN_REQUESTED'].includes(outcome))throw new Error('Invalid follow-up outcome')
+    const order=await this.orders.recordOrderFollowUp(tenantId,orderId,customerId,outcome as 'RECEIVED'|'SATISFIED'|'ISSUE'|'HUMAN_REQUESTED',optionalString(input.note),actor(tenantId))
+    return {...status(order),followUp:order.followUp}
    }
    case 'ownerDashboard': return this.orders.dashboard(tenantId)
    case 'listOrders':{

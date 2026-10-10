@@ -197,7 +197,7 @@ describe('H3 payment review, authorization and inventory commit', () => {
     const first = await app.orders.submitPaymentProof({ tenantId: 'tenant-mg', orderId: order.id, idempotencyKey: 'proof-first', actor: operator })
     await app.orders.rejectPaymentProof({ tenantId: 'tenant-mg', paymentId: first.paymentId, proofId: first.id, reason: 'Referencia inválida', idempotencyKey: 'reject-first', actor: tenantOwner })
     const replacement = await app.orders.submitPaymentProof({ tenantId: 'tenant-mg', orderId: order.id, idempotencyKey: 'proof-second', actor: operator })
-    expect(replacement.status).toBe('RECEIVED')
+    expect(replacement.status).toBe('PENDING')
   })
 })
 

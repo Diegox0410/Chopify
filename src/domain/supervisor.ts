@@ -102,7 +102,7 @@ export function classifySupervisorCase(input: {
   if (
     order?.paymentStatus === 'PROOF_RECEIVED' ||
     order?.paymentStatus === 'UNDER_REVIEW' ||
-    proof?.status === 'RECEIVED' ||
+    proof?.status === 'PENDING' || proof?.status === 'RECEIVED' ||
     proof?.status === 'UNDER_REVIEW'
   ) {
     return {

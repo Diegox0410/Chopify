@@ -31,11 +31,19 @@ export default async function handler(req: Request, res: Response) {
   }
 
   res.setHeader('Content-Type', 'application/json')
+  res.setHeader('X-Chopify-Commerce-Collection', process.env.CHOPIFY_COMMERCE_STATE_COLLECTION?.trim() || 'chopifyCommerceRuntime')
 
   const requestedTenant = value(req.query?.tenant)?.trim()
-  const tenantId = requestedTenant || 'tenant-floes'
+  if (!requestedTenant) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Explicit tenant is required' }))
+    return
+  }
+  const tenantId = requestedTenant
+  const configuredTenants = (process.env.CHOPIFY_PUBLIC_CATALOG_ALLOWED_TENANTS || process.env.CHOPIFY_COMMERCE_ALLOWED_TENANTS ||
+    (process.env.VERCEL_ENV === 'preview' ? 'tenant-floes' : 'tenant-floes,tenant-mg,tenant-dgng')).split(',').map(tenant => tenant.trim())
 
-  if (!PUBLIC_TENANTS.has(tenantId)) {
+  if (!PUBLIC_TENANTS.has(tenantId) || !configuredTenants.includes(tenantId)) {
     res.statusCode = 404
     res.end(JSON.stringify({ error: 'Catalog not found' }))
     return

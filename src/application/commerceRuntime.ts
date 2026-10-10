@@ -69,10 +69,10 @@ export function migrateCommerceState(tenantId:string,state:unknown):CommerceRunt
   identities,conversations,opportunities,activities,notes,tasks,escalations},orders:{products,orders,
   payments,proofs,reservations,idempotency,inventory,agreements,audit,publishedOrderIds:[...legacy.orders.publishedOrderIds]}}
 }
-function buildGateway(state:CommerceRuntimeState){
+function buildGateway(state:CommerceRuntimeState,trace:Pick<CommerceGatewayRequest,'correlationId'|'requestId'>={}){
  const commercialRepositories=createSampleRepositories(state.commercial);const orderRepositories=createSampleOrderRepositories(state.orders)
  const commercial=new CommercialApplication(commercialRepositories)
- const orders=new OrderApplication({tenants:commercialRepositories.tenants,customers:commercialRepositories.customers,opportunities:commercialRepositories.opportunities,activities:commercialRepositories.activities,...orderRepositories})
+ const orders=new OrderApplication({tenants:commercialRepositories.tenants,customers:commercialRepositories.customers,opportunities:commercialRepositories.opportunities,activities:commercialRepositories.activities,...orderRepositories},undefined,trace)
  const supervisor=new SupervisorApplication({...commercialRepositories,orders:orderRepositories.orders,proofs:orderRepositories.proofs})
  const identityResolver=new CustomerIdentityResolver(commercialRepositories)
  return new CommerceGateway(commercial,orders,orderRepositories.commerce,supervisor,identityResolver)
@@ -80,7 +80,7 @@ function buildGateway(state:CommerceRuntimeState){
 const MUTATIONS=new Set<CommerceGatewayRequest['operation']>([
  'createOrUpdateCustomer','createOpportunity','createOrderDraft','attachPaymentProof','requestHumanEscalation','resolveCustomerIdentity',
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
- 'syncFloesCatalog','updateProduct','importCatalog',
+ 'syncFloesCatalog','updateProduct','importCatalog','updateOrderDelivery','recordOrderFollowUp',
 ])
 export class PersistentCommerceRuntime{
  constructor(private readonly store:CommerceStateStore,private readonly maxAttempts=4){}
@@ -88,7 +88,7 @@ export class PersistentCommerceRuntime{
   for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
    const loaded=await this.store.load(request.tenantId);const state=loaded?.state??createTenantCommerceState(request.tenantId)
    if(!loaded&&request.tenantId==='tenant-floes'&&request.operation==='importCatalog')state.orders.products=[]
-   const result=await buildGateway(state).execute(request)
+   const result=await buildGateway(state,request).execute(request)
    const shouldPersist=MUTATIONS.has(request.operation)||!loaded||loaded.migrated===true
    if(!shouldPersist)return result
    try{await this.store.save(request.tenantId,state,loaded?.version??null);return result}

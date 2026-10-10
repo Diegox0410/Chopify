@@ -3,7 +3,7 @@ import type { CurrencyCode, EntityId, ISODateTime, TenantScoped, Timestamped } f
 
 export type OrderStatus = 'CREATED' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED'
 export type PaymentStatus = 'UNPAID' | 'PROOF_RECEIVED' | 'UNDER_REVIEW' | 'PAID' | 'REJECTED' | 'REFUNDED'
-export type PaymentProofStatus = 'RECEIVED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'
+export type PaymentProofStatus = 'PENDING' | 'RECEIVED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'
 export type FulfillmentStatus = 'UNFULFILLED' | 'PREPARING' | 'READY' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'
 export type ManagedBy = 'NONE' | 'HUMAN' | 'AUTOMATION' | 'MIXED'
 
@@ -95,7 +95,7 @@ export function startPaymentReview(
     throw new Error('Payment proof cannot enter review from its current state')
   }
 
-  if (proof.status !== 'RECEIVED') {
+  if (proof.status !== 'PENDING' && proof.status !== 'RECEIVED') {
     throw new Error('Proof cannot enter review from its current state')
   }
 
@@ -115,8 +115,8 @@ export function startPaymentReview(
 export function approvePayment(payment: Payment, actorId: EntityId, at: ISODateTime): Payment { if (!['PROOF_RECEIVED', 'UNDER_REVIEW'].includes(payment.status)) throw new Error('Payment proof is not reviewable'); return { ...payment, status: 'PAID', confirmedBy: actorId, paidAt: at, updatedAt: at } }
 export const confirmPayment = approvePayment
 export function rejectPayment(payment: Payment, at: ISODateTime): Payment { if (!['PROOF_RECEIVED', 'UNDER_REVIEW'].includes(payment.status)) throw new Error('Payment proof is not reviewable'); return { ...payment, status: 'REJECTED', rejectedAt: at, updatedAt: at } }
-export function approveProof(proof: PaymentProof, reviewerId: string, at: string): PaymentProof { if (!['RECEIVED', 'UNDER_REVIEW'].includes(proof.status)) throw new Error('Proof is not reviewable'); return { ...proof, status: 'APPROVED', reviewedBy: reviewerId, reviewedAt: at } }
-export function rejectProof(proof: PaymentProof, reviewerId: string, reason: string, at: string): PaymentProof { if (!reason.trim()) throw new Error('Rejection reason is required'); if (!['RECEIVED', 'UNDER_REVIEW'].includes(proof.status)) throw new Error('Proof is not reviewable'); return { ...proof, status: 'REJECTED', reviewedBy: reviewerId, reviewedAt: at, rejectionReason: reason.trim() } }
+export function approveProof(proof: PaymentProof, reviewerId: string, at: string): PaymentProof { if (!['PENDING', 'RECEIVED', 'UNDER_REVIEW'].includes(proof.status)) throw new Error('Proof is not reviewable'); return { ...proof, status: 'APPROVED', reviewedBy: reviewerId, reviewedAt: at } }
+export function rejectProof(proof: PaymentProof, reviewerId: string, reason: string, at: string): PaymentProof { if (!reason.trim()) throw new Error('Rejection reason is required'); if (!['PENDING', 'RECEIVED', 'UNDER_REVIEW'].includes(proof.status)) throw new Error('Proof is not reviewable'); return { ...proof, status: 'REJECTED', reviewedBy: reviewerId, reviewedAt: at, rejectionReason: reason.trim() } }
 export function cancelOrder(order: Order, reason: string, at: string): Order { if (!reason.trim()) throw new Error('Cancellation reason is required'); if (order.orderStatus === 'CANCELLED') return order; if (order.orderStatus === 'COMPLETED' || order.paymentStatus === 'PAID') throw new Error('Paid or completed orders require an explicit refund/restock flow'); return { ...order, orderStatus: 'CANCELLED', fulfillmentStatus: 'CANCELLED', cancelledAt: at, cancellationReason: reason.trim(), updatedAt: at } }
 export function startPreparation(order: Order, at: string): Order { if (order.paymentStatus !== 'PAID') throw new Error('Prepaid orders require PAID before preparation'); if (order.fulfillmentStatus !== 'UNFULFILLED') throw new Error('Only unfulfilled orders can start preparation'); return { ...order, fulfillmentStatus: 'PREPARING', updatedAt: at } }
 export function markReady(order: Order, at: string): Order { if (order.fulfillmentStatus !== 'PREPARING') throw new Error('Only preparing orders can be ready'); return { ...order, fulfillmentStatus: 'READY', updatedAt: at } }
