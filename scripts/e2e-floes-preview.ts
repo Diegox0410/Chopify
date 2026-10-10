@@ -257,8 +257,11 @@ async function main() {
   const approvedProof = (detail.proofs as Json[]).find(item => item.id === proof?.id)
   assert(approvedProof?.status === 'APPROVED' && typeof approvedProof.reviewedBy === 'string' && approvedProof.reviewedBy !== 'ganobot-commerce', 'Payment approval requires an authenticated human reviewer')
   const audit = detail.audit as Json[]
-  assert(audit.some(item => item.type === 'PAYMENT_APPROVED' && item.actorId === approvedProof.reviewedBy && item.actorType !== 'AUTOMATION' && (item.metadata as Json)?.correlationId === runId), 'Owner payment approval audit or correlation trace is missing')
-  evidence.ownerApproval = { actorId: approvedProof.reviewedBy, credentialRole: 'TENANT_OWNER', reviewWasTestControlled: true, actualFundsVerified: false }
+  const approvalAudit = audit.find(item => item.type === 'PAYMENT_APPROVED' && item.actorId === approvedProof.reviewedBy && item.actorType !== 'AUTOMATION')
+  const approvalMetadata = approvalAudit?.metadata as Json | undefined
+  assert(approvalMetadata?.correlationId === runId && approvalMetadata.approvedBy === approvedProof.reviewedBy && approvalMetadata.approvedAt === approvedProof.reviewedAt, 'Owner approval audit or correlation trace is missing')
+  assert(['PROOF_RECEIVED', 'UNDER_REVIEW'].includes(String(approvalMetadata.previousPaymentStatus)) && approvalMetadata.newPaymentStatus === 'PAID' && ['PENDING', 'RECEIVED', 'UNDER_REVIEW'].includes(String(approvalMetadata.previousProofStatus)) && approvalMetadata.newProofStatus === 'APPROVED', 'Owner approval must record both payment and proof status transitions')
+  evidence.ownerApproval = { actorId: approvedProof.reviewedBy, approvedAt: approvedProof.reviewedAt, paymentTransition: `${String(approvalMetadata.previousPaymentStatus)}->${String(approvalMetadata.newPaymentStatus)}`, proofTransition: `${String(approvalMetadata.previousProofStatus)}->${String(approvalMetadata.newProofStatus)}`, credentialRole: 'TENANT_OWNER', reviewWasTestControlled: true, actualFundsVerified: false }
   pass('owner_approval_audit_and_inventory_commit')
 
   for (const [operation, status] of [['startPreparation', 'preparing'], ['markReady', 'ready-for-dispatch'], ['dispatchOrder', 'dispatched'], ['markDelivered', 'delivered']] as const) {

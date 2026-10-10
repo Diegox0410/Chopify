@@ -169,6 +169,19 @@ describe('H3 payment review, authorization and inventory commit', () => {
     const paid = await app.orders.approvePayment({ tenantId: 'tenant-mg', paymentId: proof.paymentId, proofId: proof.id, idempotencyKey: 'approve-1', actor: tenantOwner })
     const after = await app.orderRepositories.commerce.getPosition('tenant-mg', 'mg-stock-1')
     expect(paid.status).toBe('PAID')
+    const approvalEvent = (await app.orderRepositories.audit.listByTenant('tenant-mg')).find(event => event.type === 'PAYMENT_APPROVED' && event.entityId === order.id)
+    expect(approvalEvent).toMatchObject({
+      actorId: tenantOwner.actorId,
+      timestamp: now,
+      metadata: {
+        approvedBy: tenantOwner.actorId,
+        approvedAt: now,
+        previousPaymentStatus: 'UNDER_REVIEW',
+        newPaymentStatus: 'PAID',
+        previousProofStatus: 'UNDER_REVIEW',
+        newProofStatus: 'APPROVED',
+      },
+    })
     expect(beforeReviewSnapshot).toEqual({ onHand: 10, reserved: 4 })
     expect(after).toMatchObject({ onHand: 9, reserved: 3 })
   })
