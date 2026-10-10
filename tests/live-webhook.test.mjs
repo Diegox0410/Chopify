@@ -15,6 +15,75 @@ test('challenge requires exact verification token', () => {
   assert.equal(verifyChallenge({ 'hub.mode': 'subscribe', 'hub.verify_token': 'abc', 'hub.challenge': '123' }, 'abc'), '123')
   assert.equal(verifyChallenge({ 'hub.mode': 'subscribe', 'hub.verify_token': 'bad', 'hub.challenge': '123' }, 'abc'), null)
 })
+
+test('Meta image and document proofs retain private provider references', () => {
+  const payload = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: '123456789' },
+    messages: [
+      { id: 'wamid.image', from: '593999999999', type: 'image', image: { id: '555555555', caption: 'Mi comprobante' } },
+      { id: 'wamid.document', from: '593999999999', type: 'document', document: { id: '666666666' } },
+    ],
+  } }] }] }
+  const messages = extractMessages(payload, '123456789')
+  assert.equal(messages.length, 2)
+  assert.equal(messages[0].paymentProofReference, 'meta-whatsapp://123456789/media/555555555')
+  assert.equal(messages[1].text, 'Envío mi comprobante de pago')
+  assert.equal(messages[1].paymentProofReference, 'meta-whatsapp://123456789/media/666666666')
+})
+
+test('outbound sends catalog image with caption followed by text and records provider ids', async () => {
+  const oldToken = process.env.META_TEST_IMAGE_TOKEN
+  process.env.META_TEST_IMAGE_TOKEN = 'private-test'
+  const messages = [
+    { type: 'image', url: 'https://floes-commerce.vercel.app/catalogo/floes/daniela/vino.jpeg', caption: 'Modelo Daniela · Vino · USD 35 · XS, S, M, L, XL' },
+    { type: 'text', text: '¿Qué talla deseas?' },
+  ]
+  const requests = []
+  const updates = []
+  try {
+    const result = await sendOutbound('out-image', {
+      getDoc: async () => ({ tenantId: 'tenant-floes', phoneNumberId: '123456789', status: 'PENDING', to: '593999999999', messagesJson: JSON.stringify(messages) }),
+      createDoc: async () => true,
+      updateDoc: async (id, value) => updates.push({ id, value }),
+      resolveChannel: () => ({ tenantId: 'tenant-floes', externalChannelId: '123456789', accessTokenEnv: 'META_TEST_IMAGE_TOKEN' }),
+      fetch: async (url, init) => { requests.push(JSON.parse(init.body)); return new Response(JSON.stringify({ messages: [{ id: `wamid.result.${requests.length}` }] }), { status: 200 }) },
+    })
+    assert.equal(result.status, 'SENT')
+    assert.deepEqual(requests.map(item => item.type), ['image', 'text'])
+    assert.deepEqual(requests[0].image, { link: messages[0].url, caption: messages[0].caption })
+    assert.equal(updates.at(-1).value.status, 'SENT')
+    assert.deepEqual(JSON.parse(updates.at(-2).value.providerMessageIds), ['wamid.result.1', 'wamid.result.2'])
+  } finally {
+    if (oldToken === undefined) delete process.env.META_TEST_IMAGE_TOKEN
+    else process.env.META_TEST_IMAGE_TOKEN = oldToken
+  }
+})
+
+test('partial outbound send stays UNKNOWN and never retries an accepted image', async () => {
+  const oldToken = process.env.META_TEST_IMAGE_TOKEN
+  process.env.META_TEST_IMAGE_TOKEN = 'private-test'
+  const state = { tenantId: 'tenant-floes', phoneNumberId: '123456789', status: 'PENDING', to: '593999999999', messagesJson: JSON.stringify([
+    { type: 'image', url: 'https://floes-commerce.vercel.app/catalogo/floes/daniela/vino.jpeg', caption: 'Daniela' },
+    { type: 'text', text: 'Texto' },
+  ]) }
+  let requests = 0
+  const dependencies = {
+    getDoc: async () => state,
+    createDoc: async () => true,
+    updateDoc: async (id, value) => Object.assign(state, value),
+    resolveChannel: () => ({ tenantId: 'tenant-floes', externalChannelId: '123456789', accessTokenEnv: 'META_TEST_IMAGE_TOKEN' }),
+    fetch: async () => { requests += 1; if (requests === 2) throw new Error('Network unavailable'); return new Response(JSON.stringify({ messages: [{ id: 'wamid.image.accepted' }] }), { status: 200 }) },
+  }
+  try {
+    assert.equal((await sendOutbound('out-partial', dependencies)).status, 'UNKNOWN')
+    assert.deepEqual(JSON.parse(state.providerMessageIds), ['wamid.image.accepted'])
+    assert.equal((await sendOutbound('out-partial', dependencies)).status, 'UNKNOWN')
+    assert.equal(requests, 2)
+  } finally {
+    if (oldToken === undefined) delete process.env.META_TEST_IMAGE_TOKEN
+    else process.env.META_TEST_IMAGE_TOKEN = oldToken
+  }
+})
 test('only tenant phone number text messages pass extraction', () => {
   const payload = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { metadata: { phone_number_id: 'FLOES' }, messages: [{ id: 'wamid.1', from: '+593 96 270 1442', type: 'text', text: { body: 'Hola' } }, { id: 'wamid.2', from: '593962701442', type: 'image' }] } }] }] }
   assert.deepEqual(extractMessages(payload, 'OTHER'), [])

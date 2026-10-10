@@ -4,7 +4,7 @@ import { resolveWhatsAppChannel } from './channelRegistry.js'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v23.0'
-const COLLECTION = 'chopifyWhatsAppLive'
+const COLLECTION = process.env.VERCEL_ENV === 'preview' ? 'chopifyWhatsAppLivePreview' : 'chopifyWhatsAppLive'
 const now = () => new Date().toISOString()
 const hash = value => createHash('sha256').update(value).digest('hex')
 const must = key => { const value = process.env[key]; if (!value) throw new Error(`Missing server environment variable: ${key}`); return value }
@@ -29,9 +29,13 @@ export function extractMessages(payload, expectedPhoneNumberId) {
       if (!message.id || !message.from) continue
       const from = String(message.from).replace(/\D/g, '')
       if (!/^\d{8,15}$/.test(from)) continue
-      const text = message.type === 'text' && typeof message.text?.body === 'string' ? message.text.body.trim().slice(0, 4000) : ''
-      if (!text) continue // Non-text messages are not auto-answered; handle separately in human inbox.
-      result.push({ id: message.id, from, text, phoneNumberId, receivedAt: now(), name: change.value.contacts?.find(c => c.wa_id === message.from)?.profile?.name?.slice(0, 100) || '' })
+      const media = ['image', 'document'].includes(message.type) ? message[message.type] : undefined
+      const mediaId = typeof media?.id === 'string' && /^\d{5,100}$/.test(media.id) ? media.id : undefined
+      const text = message.type === 'text' && typeof message.text?.body === 'string'
+        ? message.text.body.trim().slice(0, 4000)
+        : mediaId ? (typeof media.caption === 'string' ? media.caption.trim().slice(0, 4000) : '') || 'Envío mi comprobante de pago' : ''
+      if (!text) continue
+      result.push({ id: message.id, from, text, phoneNumberId, ...(mediaId ? { paymentProofReference: `meta-whatsapp://${phoneNumberId}/media/${mediaId}` } : {}), receivedAt: now(), name: change.value.contacts?.find(c => c.wa_id === message.from)?.profile?.name?.slice(0, 100) || '' })
     }
   }
   return result
@@ -156,6 +160,7 @@ export async function prepareReply(message) {
       headers: {
         ...JSON_HEADERS,
         Authorization: `Bearer ${process.env.GANOBOT_LIVE_BEARER_TOKEN}`,
+        ...(process.env.CHOPIFY_VERCEL_PROTECTION_BYPASS_SECRET ? { 'x-vercel-protection-bypass': process.env.CHOPIFY_VERCEL_PROTECTION_BYPASS_SECRET } : {}),
       },
       body: JSON.stringify({
         tenantId: message.tenantId,
@@ -166,6 +171,7 @@ export async function prepareReply(message) {
           name: message.name,
         },
         text: message.text,
+        ...(message.paymentProofReference ? { paymentProofReference: message.paymentProofReference } : {}),
         correlationId: message.correlationId,
       }),
     })
@@ -239,8 +245,22 @@ export async function prepareReply(message) {
     result: 'VALID_REPLY',
   })
 
+  const messages = Array.isArray(body.messages) ? body.messages.map(item => {
+    if (item?.type === 'image' && typeof item.url === 'string') {
+      let url
+      try { url = new URL(item.url) } catch { throw new LiveDependencyError('GANOBOT_INVALID_RESPONSE', 'Invalid image URL') }
+      const catalogBase = process.env.FLOES_PUBLIC_BASE_URL
+      if (message.tenantId !== 'tenant-floes' || !catalogBase || url.protocol !== 'https:' || url.origin !== new URL(catalogBase).origin || !url.pathname.startsWith('/catalogo/floes/') || url.username || url.password || url.search || url.hash) {
+        throw new LiveDependencyError('GANOBOT_INVALID_RESPONSE', 'Image must use the tenant public catalog')
+      }
+      return { type: 'image', url: url.href, caption: typeof item.caption === 'string' ? item.caption.slice(0, 1024) : '' }
+    }
+    if (item?.type === 'text' && typeof item.text === 'string' && item.text.trim() && item.text.length <= 4000) return { type: 'text', text: item.text.trim() }
+    throw new LiveDependencyError('GANOBOT_INVALID_RESPONSE', 'Invalid outbound message')
+  }).slice(0, 5) : undefined
   return {
     text: body.reply.trim(),
+    ...(messages?.length ? { messages } : {}),
     requiresHuman: false,
     mode: 'GANOBOT_LIVE',
   }
@@ -279,6 +299,7 @@ export async function receive(message, dependencies = {}) {
     phoneNumberId: message.phoneNumberId,
     from: message.from,
     text: message.text,
+    ...(message.paymentProofReference ? { paymentProofReference: message.paymentProofReference } : {}),
     name: message.name,
     receivedAt: message.receivedAt,
     status: 'RECEIVED',
@@ -354,6 +375,7 @@ export async function receive(message, dependencies = {}) {
       inboundId: id,
       to: message.from,
       text: decision.text,
+      ...(decision.messages?.length ? { messagesJson: JSON.stringify(decision.messages) } : {}),
       mode: decision.mode,
       status: 'PREPARED',
       createdAt: now(),
@@ -442,7 +464,13 @@ export async function sendOutbound(id, dependencies = {}) {
   await updateDocument(id, { status: 'SENDING', attempts: String(attempt) })
   safeLog('outbound_attempt', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENDING', attempt })
   try {
-    const response = await request(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(channel.externalChannelId)}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: item.text } }) })
+    const messages = item.messagesJson ? JSON.parse(item.messagesJson) : [{ type: 'text', text: item.text }]
+    if (!Array.isArray(messages) || !messages.length || messages.length > 5) throw new Error('Invalid persisted outbound messages')
+    const providerIds = []
+    for (const [index, message] of messages.entries()) {
+    const response = message.type === 'image'
+      ? await sendImageWithCaption(channel, item.to, message, request)
+      : await request(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(channel.externalChannelId)}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: message.text } }) })
     const body = await response.json().catch(() => ({}))
     if (!response.ok || !body.messages?.[0]?.id) {
       const details = metaErrorDetails(response.status, body)
@@ -450,9 +478,12 @@ export async function sendOutbound(id, dependencies = {}) {
       error.meta = details
       throw error
     }
-    await updateDocument(id, { status: 'SENT', providerMessageId: body.messages[0].id, sentAt: now() })
-    safeLog('meta_send_succeeded', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENT', httpStatus: response.status })
-    return { status: 'SENT', providerMessageId: body.messages[0].id }
+    providerIds.push(body.messages[0].id)
+    await updateDocument(id, { providerMessageIds: JSON.stringify(providerIds), sentMessageCount: String(index + 1) })
+    }
+    await updateDocument(id, { status: 'SENT', providerMessageId: providerIds[0], sentAt: now() })
+    safeLog('meta_send_succeeded', { correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'SENT', sentMessageCount: providerIds.length })
+    return { status: 'SENT', providerMessageId: providerIds[0] }
   } catch (error) {
     // Do not auto-retry an ambiguous send: Meta may have accepted it before a timeout.
     const details = error?.meta || { httpStatus: 0, metaErrorCode: null, metaErrorType: error instanceof Error ? error.name : 'Error', message: error instanceof Error ? error.message : 'Unknown send error', fbtraceId: null }
@@ -460,6 +491,15 @@ export async function sendOutbound(id, dependencies = {}) {
     console.error(JSON.stringify({ service: 'whatsapp-live', stage: 'meta_send_failed', correlationId: item.inboundId || id, outboundId: id, outboundStatus: 'UNKNOWN', ...details }))
     return { status: 'UNKNOWN', error: details }
   }
+}
+export async function sendImageWithCaption(channel, to, message, request = fetch) {
+  const url = new URL(message.url)
+  if (url.protocol !== 'https:' || url.username || url.password || typeof message.caption !== 'string' || message.caption.length > 1024) throw new Error('Invalid catalog image message')
+  return request(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(channel.externalChannelId)}/messages`, {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'image', image: { link: url.href, caption: message.caption } }),
+  })
 }
 export async function handleWebhook(req, res) {
   try {
