@@ -93,6 +93,10 @@ async function main() {
   assert(publicProducts.length === 3 && publicProducts.every(product => !('ganoBotNotes' in product)), 'Public catalog has extra models or internal GanoBot notes')
   const publicDaniela = publicProducts.find(product => modelKey(String(product.name ?? '')) === 'daniela')
   assert(publicDaniela && Array.isArray(publicDaniela.variants) && publicDaniela.variants.length === 13, 'Public Daniela catalog must expose exactly 13 colors')
+  const publicVino = (publicDaniela.variants as Json[]).find(variant => variant.sku === 'FLOES-DAN-11')
+  const publicRegularPrice = publicVino?.regularPrice as Json | undefined
+  const publicPromotionalPrice = publicVino?.promotionalPrice as Json | undefined
+  assert(publicRegularPrice?.amount === 39.99 && publicRegularPrice.currency === 'USD' && publicPromotionalPrice?.amount === 34.99 && publicPromotionalPrice.currency === 'USD', 'Public Daniela/Vino must show USD 39.99 regular and USD 34.99 promotional pricing')
   assert(publicProducts.every(product => {
     const guide = product.sizeGuide as Json | undefined
     return guide?.measurement === 'FLAT_GARMENT_CM' && Array.isArray(guide.blouse) && guide.blouse.length === 5 && Array.isArray(guide.trousers) && guide.trousers.length === 5
