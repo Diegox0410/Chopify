@@ -33,6 +33,7 @@ export class OrderApplication {
   }
 
   async listOrders(scope: TenantScope, filters?: Parameters<OrderRepository['listByTenant']>[1]) { const ids = await this.tenantIds(scope); return (await Promise.all(ids.map((tenantId) => this.repositories.orders.listByTenant(tenantId, filters)))).flat() }
+  listActivities(tenantId: string) { return this.repositories.activities.listByTenant(tenantId) }
   getOrder(tenantId: string, orderId: string) { return this.repositories.orders.getById(tenantId, orderId) }
   async getCreatedOrderByKey(tenantId:string,key:string,actor:ActorContext) {
     authorizeTenant(actor,tenantId,'order:manage')

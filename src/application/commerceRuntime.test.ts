@@ -64,4 +64,25 @@ describe('Persistent Commerce Runtime production state',()=>{
   const detail=await restart.execute(req('getOrderDetail',{orderId:order.orderId},'life-final','tenant-mg')) as {order:{orderStatus:string;followUp:{outcome:string};fulfillmentDetails:{deliveryMode:string}}}
   expect(detail.order).toMatchObject({orderStatus:'COMPLETED',fulfillmentDetails:{deliveryMode:'PICKUP'},followUp:{outcome:'SATISFIED'}})
  })
+ it('batches a read model through one Firestore state load per tenant',async()=>{
+  const records=new MemoryCommerceStateStore();let loads=0,saves=0
+  const store={
+   async load(tenantId:string){loads+=1;return records.load(tenantId)},
+   async save(tenantId:string,state:Parameters<typeof records.save>[1],version:string|null){saves+=1;return records.save(tenantId,state,version)},
+  }
+  const runtime=new PersistentCommerceRuntime(store)
+  const results=await runtime.executeMany([
+   req('listOrders',{},'batch-orders'),
+   req('listCustomers',{},'batch-customers'),
+   req('listPaymentReviews',{},'batch-reviews'),
+   req('listOrderActivities',{},'batch-activities'),
+   req('listOpportunities',{},'batch-opportunities'),
+  ])
+  expect(loads).toBe(1);expect(saves).toBe(1);expect(results).toHaveLength(5)
+  await runtime.executeMany([req('listOrders',{},'batch-orders-again'),req('ownerDashboard',{},'batch-dashboard')])
+  expect(loads).toBe(2);expect(saves).toBe(1)
+  await expect(runtime.executeMany([req('listOrders',{},'tenant-floes'),req('listOrders',{},'tenant-mg','tenant-mg')])).rejects.toThrow(/one tenant/)
+  await expect(runtime.executeMany([req('approvePayment',{},'mutation')])).rejects.toThrow(/read-only/)
+  expect(loads).toBe(2)
+ })
 })

@@ -6,6 +6,14 @@ import { normalizeCatalogKey, normalizeImagePath, previewCatalogImport, type Cat
 import type { CommerceProduct } from '../../domain/commerce'
 
 interface Asset { name: string; bytes: Uint8Array }
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
 async function collectAssets(files: FileList | null): Promise<Asset[]> {
   if (!files) return []
   const assets: Asset[] = []
@@ -67,9 +75,14 @@ export function CatalogImportPanel({tenantId,products,onImported}:{tenantId:stri
         const path=asset.name.replace(/\\/g,'/').split('/');const filename=path.at(-1)??''
         const key=normalizeImagePath(asset.name)
         let model=path.length>1?normalizeCatalogKey(path.at(-2)??''):''
-        if(!model){const matching=rows.filter(row=>[1,2,3,4].some(number=>normalizeImagePath(String(row[`imagen_${number}`]??'')).endsWith(key)));const models=[...new Set(matching.map(row=>normalizeCatalogKey(String(row.nombre_producto??'').replace(/^modelo\s+/i,''))))];if(models.length!==1)throw new Error(`Coloca ${filename} dentro de la carpeta de su modelo`);model=models[0]}
+        if(!model){const matching=rows.filter(row=>Array.from({length:6},(_,index)=>index+1).some(number=>normalizeImagePath(String(row[`imagen_${number}`]??'')).endsWith(key)));const models=[...new Set(matching.map(row=>normalizeCatalogKey(String(row.nombre_producto??'').replace(/^modelo\s+/i,''))))];if(models.length!==1)throw new Error(`Coloca ${filename} dentro de la carpeta de su modelo`);model=models[0]}
         setStatus(`Verificando imagen ${index+1} de ${assets.length}…`)
-        const response=await fetch('/api/catalog-assets',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({tenantId,model,color:normalizeCatalogKey(filename.replace(/\.[^.]+$/,''))})})
+        // Preserve the original byte mapping; use a safe upload filename accepted by Storage.
+        // These are model gallery assets, not evidence that a pictured color is available.
+        const extension = filename.split('.').at(-1)?.toLowerCase()
+        if (!extension || !['jpg','jpeg','png','webp'].includes(extension)) throw new Error(`Formato de imagen no compatible: ${filename}`)
+        const uploadFilename = `foto-${String(index+1).padStart(2,'0')}.${extension}`
+        const response=await fetch('/api/catalog-assets',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({tenantId,model,color:'galeria',filename:uploadFilename,dataBase64:base64(asset.bytes)})})
         const body=await response.json() as {ok?:boolean;data?:{url:string};error?:string}
         if(!response.ok||!body.ok||!body.data)throw new Error(body.error??'No se pudo subir la imagen')
         urls[asset.name]=body.data.url

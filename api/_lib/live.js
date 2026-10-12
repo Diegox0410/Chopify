@@ -1,6 +1,7 @@
 import { createHash, createHmac, createSign, randomUUID, timingSafeEqual } from 'node:crypto'
 import { isKnownTenant } from '../../src/config/tenantRegistry.js'
 import { resolveWhatsAppChannel } from './channelRegistry.js'
+import { upstreamResponseError } from './upstreamError.js'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v23.0'
@@ -33,7 +34,7 @@ export function extractMessages(payload, expectedPhoneNumberId) {
       const mediaId = typeof media?.id === 'string' && /^\d{5,100}$/.test(media.id) ? media.id : undefined
       const text = message.type === 'text' && typeof message.text?.body === 'string'
         ? message.text.body.trim().slice(0, 4000)
-        : mediaId ? (typeof media.caption === 'string' ? media.caption.trim().slice(0, 4000) : '') || 'Envío mi comprobante de pago' : ''
+        : mediaId ? (typeof media.caption === 'string' ? media.caption.trim().slice(0, 4000) : '') || 'El cliente envió una imagen sin texto.' : ''
       if (!text) continue
       result.push({ id: message.id, from, text, phoneNumberId, ...(mediaId ? { paymentProofReference: `meta-whatsapp://${phoneNumberId}/media/${mediaId}` } : {}), receivedAt: now(), name: change.value.contacts?.find(c => c.wa_id === message.from)?.profile?.name?.slice(0, 100) || '' })
     }
@@ -88,7 +89,7 @@ export function metaErrorDetails(status, body) {
 }
 async function firestore(path, options = {}) {
   const token = await accessToken()
-  return fetch(`${firestoreBase()}${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, ...JSON_HEADERS, ...(options.headers || {}) } })
+  return fetch(`${firestoreBase()}${path}`, { ...options, signal: options.signal || AbortSignal.timeout(10_000), headers: { Authorization: `Bearer ${token}`, ...JSON_HEADERS, ...(options.headers || {}) } })
 }
 export async function createDoc(id, data) {
   const response = await firestore(`?documentId=${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ fields: encodeFields(data) }) })
@@ -113,6 +114,7 @@ export async function listPendingOutbox(limit = 20) {
   const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`
   const response = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(10_000),
     headers: { Authorization: `Bearer ${await accessToken()}`, ...JSON_HEADERS },
     body: JSON.stringify({ structuredQuery: {
       from: [{ collectionId: COLLECTION }],
@@ -120,7 +122,7 @@ export async function listPendingOutbox(limit = 20) {
       limit: Math.min(limit, 100),
     } }),
   })
-  if (!response.ok) throw new Error(`Firestore query failed (${response.status})`)
+  if (!response.ok) throw await upstreamResponseError(response, { service: 'firestore', operation: 'whatsapp_live_query' })
   const rows = await response.json()
   return rows.filter(row => row.document?.name?.split('/').at(-1).startsWith('out_')).map(row => ({ id: row.document.name.split('/').at(-1), ...decodeFields(row.document) }))
 }
@@ -129,6 +131,7 @@ export async function listLiveDocuments(tenantId, limit = 200) {
   const projectId = encodeURIComponent(serviceAccount().project_id)
   const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`, {
     method: 'POST',
+    signal: AbortSignal.timeout(10_000),
     headers: { Authorization: `Bearer ${await accessToken()}`, ...JSON_HEADERS },
     body: JSON.stringify({ structuredQuery: {
       from: [{ collectionId: COLLECTION }],
@@ -136,12 +139,40 @@ export async function listLiveDocuments(tenantId, limit = 200) {
       limit: Math.min(limit, 500),
     } }),
   })
-  if (!response.ok) throw new Error(`Firestore query failed (${response.status})`)
+  if (!response.ok) throw await upstreamResponseError(response, { service: 'firestore', operation: 'whatsapp_live_query' })
+  const rows = await response.json()
+  return rows.filter(row => row.document).map(row => ({ id: row.document.name.split('/').at(-1), ...decodeFields(row.document) }))
+}
+export async function listLiveDocumentsForTenants(tenantIds, limit = 500) {
+  const uniqueTenants = [...new Set(tenantIds)]
+  if (!uniqueTenants.length || uniqueTenants.some(tenantId => !isKnownTenant(tenantId))) throw new Error('Known tenants are required')
+  const projectId = encodeURIComponent(serviceAccount().project_id)
+  const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(10_000),
+    headers: { Authorization: `Bearer ${await accessToken()}`, ...JSON_HEADERS },
+    body: JSON.stringify({ structuredQuery: {
+      from: [{ collectionId: COLLECTION }],
+      where: { fieldFilter: { field: { fieldPath: 'tenantId' }, op: 'IN', value: { arrayValue: { values: uniqueTenants.map(tenantId => ({ stringValue: tenantId })) } } } },
+      limit: Math.min(limit, 1500),
+    } }),
+  })
+  if (!response.ok) throw await upstreamResponseError(response, { service: 'firestore', operation: 'whatsapp_live_query' })
   const rows = await response.json()
   return rows.filter(row => row.document).map(row => ({ id: row.document.name.split('/').at(-1), ...decodeFields(row.document) }))
 }
 function outboundId(inboundId) { return `out_${hash(inboundId)}` }
 function inboundId(providerId) { return `in_${hash(providerId)}` }
+export function conversationMetaId(conversationId) { return `thread_${hash(conversationId)}` }
+export async function getConversationMeta(conversationId) { return getDoc(conversationMetaId(conversationId)) }
+export async function setConversationMeta(conversationId, tenantId, fields) {
+  const id = conversationMetaId(conversationId)
+  const existing = await getDoc(id)
+  const next = { ...(existing || {}), tenantId, conversationId, ...fields, updatedAt: now() }
+  if (existing) await updateDoc(id, next)
+  else if (!await createDoc(id, next)) await updateDoc(id, next)
+  return next
+}
 export async function prepareReply(message) {
   const endpoint = process.env.GANOBOT_LIVE_URL
   if (!endpoint || !process.env.GANOBOT_LIVE_BEARER_TOKEN) throw new LiveDependencyError('GANOBOT_NOT_CONFIGURED', 'GanoBot live integration is not configured')
@@ -270,6 +301,8 @@ export async function receive(message, dependencies = {}) {
   const createDocument = dependencies.createDoc || createDoc
   const updateDocument = dependencies.updateDoc || updateDoc
   const prepareAutomationReply = dependencies.prepareReply || prepareReply
+  const readThread = dependencies.getConversationMeta || (dependencies.createDoc ? async () => null : getConversationMeta)
+  const writeThread = dependencies.setConversationMeta || (dependencies.createDoc ? async () => null : setConversationMeta)
 
   const id = inboundId(message.id)
   if (!isKnownTenant(message.tenantId) || !message.phoneNumberId) throw new Error('Resolved tenant channel is required')
@@ -307,6 +340,17 @@ export async function receive(message, dependencies = {}) {
 
   if (!inserted) return { duplicate: true, id }
 
+  let thread = await readThread(conversationId).catch(() => null)
+  if (thread?.mode === 'CLOSED' || thread?.mode === 'RESOLVED') {
+    thread = await writeThread(conversationId, message.tenantId, { mode: 'GANOBOT_LIVE', requiresHuman: 'false', lastInboundAt: message.receivedAt })
+  } else if (thread?.mode === 'HUMAN') {
+    await updateDocument(id, { status: 'HUMAN_QUEUED', escalationReason: thread.escalationReason || 'CUSTOMER_REQUEST' })
+    await writeThread(conversationId, message.tenantId, { lastInboundAt: message.receivedAt, requiresHuman: 'true' })
+    return { duplicate: false, id, needsHuman: true, mode: 'HUMAN' }
+  } else {
+    thread = await writeThread(conversationId, message.tenantId, { mode: 'GANOBOT_LIVE', lastInboundAt: message.receivedAt })
+  }
+
   let decision
 
   try {
@@ -322,6 +366,7 @@ export async function receive(message, dependencies = {}) {
         ? error.message.slice(0, 500)
         : 'Automation failed',
     })
+    await writeThread(conversationId, message.tenantId, { mode: 'HUMAN', requiresHuman: 'true', escalationReason: 'SYSTEM_ERROR' })
 
     safeLog('automation_decision', {
       correlationId,
@@ -340,6 +385,13 @@ export async function receive(message, dependencies = {}) {
     }
   }
 
+  const latestThread = await readThread(conversationId).catch(() => null)
+  if (latestThread?.mode === 'HUMAN') {
+    await updateDocument(id, { status: 'HUMAN_QUEUED', escalationReason: latestThread.escalationReason || 'CUSTOMER_REQUEST' })
+    await writeThread(conversationId, message.tenantId, { lastInboundAt: message.receivedAt, requiresHuman: 'true' })
+    return { duplicate: false, id, needsHuman: true, mode: 'HUMAN' }
+  }
+
   if (decision.requiresHuman === true) {
     await updateDocument(id, {
       status: 'NEEDS_HUMAN',
@@ -347,6 +399,7 @@ export async function receive(message, dependencies = {}) {
       technicalReason: '',
       error: '',
     })
+    await writeThread(conversationId, message.tenantId, { mode: 'HUMAN', requiresHuman: 'true', escalationReason: decision.escalationReason || 'OTHER' })
 
     safeLog('automation_decision', {
       correlationId,
@@ -402,6 +455,7 @@ export async function receive(message, dependencies = {}) {
       technicalReason: '',
       error: '',
     })
+    await writeThread(conversationId, message.tenantId, { requiresHuman: 'false', escalationReason: '' })
 
     await updateDocument(out, {
       status: 'PENDING',
@@ -415,6 +469,7 @@ export async function receive(message, dependencies = {}) {
         ? error.message.slice(0, 500)
         : 'Outbound persistence failed',
     }).catch(() => {})
+    await writeThread(conversationId, message.tenantId, { mode: 'HUMAN', requiresHuman: 'true', escalationReason: 'SYSTEM_ERROR' }).catch(() => {})
 
     safeLog('automation_decision', {
       correlationId,
@@ -470,7 +525,7 @@ export async function sendOutbound(id, dependencies = {}) {
     for (const [index, message] of messages.entries()) {
     const response = message.type === 'image'
       ? await sendImageWithCaption(channel, item.to, message, request)
-      : await request(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(channel.externalChannelId)}/messages`, { method: 'POST', headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: item.to, type: 'text', text: { preview_url: false, body: message.text } }) })
+      : await sendTextMessage(channel, item.to, message.text, request)
     const body = await response.json().catch(() => ({}))
     if (!response.ok || !body.messages?.[0]?.id) {
       const details = metaErrorDetails(response.status, body)
@@ -499,6 +554,13 @@ export async function sendImageWithCaption(channel, to, message, request = fetch
     method: 'POST',
     headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` },
     body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'image', image: { link: url.href, caption: message.caption } }),
+  })
+}
+export async function sendTextMessage(channel, to, text, request = fetch) {
+  return request(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(channel.externalChannelId)}/messages`, {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${must(channel.accessTokenEnv)}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'text', text: { preview_url: false, body: text } }),
   })
 }
 export async function handleWebhook(req, res) {

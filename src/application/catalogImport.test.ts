@@ -71,6 +71,56 @@ describe('FLOES catalog import', () => {
     expect(positions.every(position => position.onHand === 10 && position.reserved === 0)).toBe(true)
   })
 
+  it('accepts an explicit size-to-stock map without multiplying a shared stock figure', () => {
+    const preview = previewCatalogImport('tenant-floes', [row('D-SIZE-MAP', {
+      talla: 'XS,S,M,L,XL', stock_actual: '', stock_individual_por_talla_y_por_color: '', stock_por_talla_json: '{"XS":0,"S":2,"M":5,"L":1,"XL":0}',
+    })])
+    expect(preview.products[0].variants[0]).toMatchObject({
+      stock: 8,
+      initialStockBySize: { XS: 0, S: 2, M: 5, L: 1, XL: 0 },
+      available: true,
+    })
+    expect(preview.products[0].variants[0].status).toBe('ACTIVE')
+  })
+
+  it('uses stock_actual when the optional legacy per-size stock cell is blank', () => {
+    const preview = previewCatalogImport('tenant-floes', [row('D-STOCK', { stock_individual_por_talla_y_por_color: '' })])
+    expect(preview.products[0].variants[0]).toMatchObject({ stock: 10, available: true })
+  })
+
+  it('keeps all six ordered gallery references for Girasol', () => {
+    const references = Array.from({ length: 6 }, (_, index) => `GIRASOL/${index + 1}.jpeg`)
+    const imageUrls = Object.fromEntries(references.map((reference, index) => [reference, `https://images.example.test/girasol-${index + 1}.webp`]))
+    const preview = previewCatalogImport('tenant-floes', [row('GIR-1', {
+      nombre_producto: 'Modelo Girasol', imagen_1: references[0], imagen_2: references[1], imagen_3: references[2],
+      imagen_4: references[3], imagen_5: references[4], imagen_6: references[5],
+    })], [], imageUrls)
+    expect(preview.products[0].variants[0].images.map(image => image.url)).toEqual(Object.values(imageUrls))
+  })
+
+  it('rejects incomplete or ambiguous size-to-stock maps', () => {
+    const missingSize = previewCatalogImport('tenant-floes', [row('D-SIZE-MISSING', {
+      talla: 'S,M', stock_actual: '', stock_por_talla_json: '{"S":2}',
+    })])
+    expect(missingSize.issues.some(issue => /exactamente cada talla/.test(issue.message))).toBe(true)
+
+    const ambiguous = previewCatalogImport('tenant-floes', [row('D-SIZE-BOTH', {
+      talla: 'S,M', stock_actual: '', stock_individual_por_talla_y_por_color: 2,
+      stock_por_talla_json: '{"S":2,"M":2}',
+    })])
+    expect(ambiguous.issues.some(issue => /no ambos/.test(issue.message))).toBe(true)
+  })
+
+  it('keeps rows with missing price or stock as non-published drafts', () => {
+    const preview = previewCatalogImport('tenant-floes', [row('D-DRAFT', {
+      precio_venta: '', precio_promocional: '', stock_actual: '', activo: 'SI', disponible: 'SI',
+    })])
+    const variant = preview.products[0].variants[0]
+    expect(variant).toMatchObject({ status: 'DRAFT', visibility: 'HIDDEN', available: false, stock: null, salePriceCents: null })
+    expect(preview.products[0].status).toBe('DRAFT')
+    expect(preview.issues.some(issue => issue.field === 'activo' && issue.severity === 'WARNING')).toBe(true)
+  })
+
   it('reserves and commits one size without changing the other size positions', async () => {
     const db = createSampleOrderDatabase(), adapter = new SampleBusinessCommerceAdapter(db)
     const preview = previewCatalogImport('tenant-floes', [perSizeRow()])

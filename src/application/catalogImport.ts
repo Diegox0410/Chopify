@@ -68,18 +68,33 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
     try {
       const currency = text(row.moneda).toUpperCase()
       if (!/^[A-Z]{3}$/.test(currency)) throw new Error('moneda debe contener un código ISO explícito')
-      const active = boolean(row.activo), available = boolean(row.disponible)
-      if (active === null) throw new Error('activo es obligatorio')
+      const requestedActive = boolean(row.activo), available = boolean(row.disponible)
+      if (requestedActive === null) throw new Error('activo es obligatorio')
       const fulfillmentMode = mode(row.tipo_entrega)
-      const hasIndividualSizeColorStock = Object.prototype.hasOwnProperty.call(row, 'stock_individual_por_talla_y_por_color')
+      const hasIndividualSizeColorStock = nonempty(row.stock_individual_por_talla_y_por_color)
+      const hasSizeStockMap = nonempty(row.stock_por_talla_json)
       const sizes = [...new Set(text(row.talla).split(/[,;|/\s-]+/).map(size => size.trim().toUpperCase()).filter(Boolean))]
       const stockPerSize = hasIndividualSizeColorStock ? decimal(row.stock_individual_por_talla_y_por_color) : null
-      const stock = hasIndividualSizeColorStock
-        ? stockPerSize === null || !sizes.length ? null : stockPerSize * sizes.length
-        : decimal(row.stock_actual)
-      const initialStockBySize = hasIndividualSizeColorStock
-        ? Object.fromEntries(sizes.map(size => [size, stockPerSize]))
-        : undefined
+      if (hasIndividualSizeColorStock && hasSizeStockMap) throw new Error('Usa stock_por_talla_json o stock_individual_por_talla_y_por_color, no ambos')
+      let initialStockBySize: Record<string, number> | undefined
+      if (hasSizeStockMap) {
+        let parsed: unknown
+        try { parsed = JSON.parse(text(row.stock_por_talla_json)) }
+        catch { throw new Error('stock_por_talla_json debe ser un objeto JSON de talla a unidades') }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('stock_por_talla_json debe ser un objeto JSON de talla a unidades')
+        const entries = Object.entries(parsed as Record<string, unknown>).map(([size, value]) => [size.trim().toUpperCase(), decimal(value)] as const)
+        const keys = entries.map(([size]) => size)
+        if (!sizes.length || keys.length !== sizes.length || new Set(keys).size !== keys.length || sizes.some(size => !keys.includes(size)) || keys.some(size => !sizes.includes(size))) {
+          throw new Error('stock_por_talla_json debe incluir exactamente cada talla indicada, sin duplicados')
+        }
+        if (entries.some(([, value]) => value === null || !Number.isInteger(value) || value < 0)) throw new Error('Cada stock por talla debe ser un entero no negativo')
+        initialStockBySize = Object.fromEntries(entries as Array<readonly [string, number]>)
+      } else if (hasIndividualSizeColorStock && stockPerSize !== null && sizes.length) {
+        initialStockBySize = Object.fromEntries(sizes.map(size => [size, stockPerSize]))
+      }
+      const stock = initialStockBySize
+        ? Object.values(initialStockBySize).reduce((total, quantity) => total + quantity, 0)
+        : hasIndividualSizeColorStock ? null : decimal(row.stock_actual)
       const minimumStock = decimal(row.stock_minimo)
       for (const count of [stockPerSize, stock, minimumStock]) if (count !== null && (!Number.isInteger(count) || count < 0)) throw new Error('Stock debe ser entero no negativo o vacío')
       if (hasIndividualSizeColorStock && stockPerSize !== null && !sizes.length) throw new Error('El stock individual por talla y color requiere al menos una talla')
@@ -94,7 +109,7 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       const working = groups.get(groupKey)
       if (working && working.currency !== currency) throw new Error('Todas las variantes del modelo deben usar la misma moneda')
       const images: ProductImage[] = []
-      const references = [row.imagen_1,row.imagen_2,row.imagen_3,row.imagen_4].map(text).filter(Boolean)
+      const references = Array.from({ length: 6 }, (_, index) => row[`imagen_${index + 1}`]).map(text).filter(Boolean)
       if (!references.length && color) references.push(`${model}/${color}.jpeg`)
       for (const reference of references) {
         let url: string | undefined
@@ -115,20 +130,25 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       }
       const previousVariant = base?.variants.find(variant => skuKey(variant.sku) === skuKey(sku))
       const purchaseAvailability = fulfillmentMode === 'STOCK' ? stock !== null && stock > 0 : available ?? false
-      const variant: CommerceProductVariant = { ...(previousVariant ?? {}), id: previousVariant?.id ?? `${tenantId}:sku:${encodeURIComponent(skuKey(sku))}`, sku, color: color || null, status: active ? 'ACTIVE' : 'ARCHIVED', visibility: active ? 'VISIBLE' : 'HIDDEN', available: purchaseAvailability, stock, importedStock:stock, ...(initialStockBySize ? { initialStockBySize } : {}), minimumStock, salePriceCents: cents(sale), promotionalPriceCents: cents(promotion), fulfillmentMode, sizes, ...(sizes.length === 1 ? { size: sizes[0] } : {}), images: images.length ? images : previousVariant?.images ?? [] }
+      // An explicitly active row is still a draft until it has an actual price and stock evidence.
+      // Keep zero-stock products publishable as unavailable, but never publish an unknown balance.
+      const readyForPublication = sale !== null && (fulfillmentMode === 'STOCK' ? stock !== null : available === true)
+      const active = requestedActive === true && readyForPublication
+      const variant: CommerceProductVariant = { ...(previousVariant ?? {}), id: previousVariant?.id ?? `${tenantId}:sku:${encodeURIComponent(skuKey(sku))}`, sku, color: color || null, status: active ? 'ACTIVE' : 'DRAFT', visibility: active ? 'VISIBLE' : 'HIDDEN', available: purchaseAvailability, stock, importedStock:stock, ...(initialStockBySize ? { initialStockBySize } : {}), minimumStock, salePriceCents: cents(sale), promotionalPriceCents: cents(promotion), fulfillmentMode, sizes, ...(sizes.length === 1 ? { size: sizes[0] } : {}), images: images.length ? images : previousVariant?.images ?? [] }
       const candidates = [...(working?.variants ?? base?.variants ?? [])].filter(item => item.id !== variant.id).concat(variant)
       const knownPrices = candidates.map(item => item.salePriceCents).filter((price): price is number => typeof price === 'number')
       const parentPrice = knownPrices.length ? Math.min(...knownPrices) : null
       const guide = parseFlatSizeGuide(row.guia_tallas)
       const product: CommerceProduct = {
         ...(working ?? base ?? {}), id: groupKey, tenantId, sku: base?.sku ?? `MODEL-${model.toUpperCase()}`, slug: base?.slug ?? model, name, category: text(row.categoria), description: text(row.descripcion), commercialSummary: text(row.descripcion), currency,
-        status: candidates.some(item => item.status === 'ACTIVE') ? 'ACTIVE' : 'ARCHIVED', visibility: candidates.some(item => item.visibility === 'VISIBLE') ? 'VISIBLE' : 'HIDDEN', fulfillmentMode, pricingStatus: parentPrice === null ? 'PENDING' : 'READY', salePriceCents: parentPrice, costCents: cents(cost), percentage: base?.percentage ?? null, percentageType: base?.percentageType ?? null, images: working?.images.length ? working.images : images.length ? images : base?.images ?? [], variants: candidates,
+        status: candidates.some(item => item.status === 'ACTIVE') ? 'ACTIVE' : 'DRAFT', visibility: candidates.some(item => item.visibility === 'VISIBLE') ? 'VISIBLE' : 'HIDDEN', fulfillmentMode, pricingStatus: parentPrice === null ? 'PENDING' : 'READY', salePriceCents: parentPrice, costCents: cents(cost), percentage: base?.percentage ?? null, percentageType: base?.percentageType ?? null, images: working?.images.length ? working.images : images.length ? images : base?.images ?? [], variants: candidates,
         collection: text(row.coleccion), gender: text(row.genero), characteristics: text(row.caracteristicas).split(/[;|\n]+/).map(value => value.trim()).filter(Boolean), material: text(row.material), ganoBotNotes: text(row.notas_ganobot), internalNotes: text(row.notas_internas), ...(guide ? { sizeGuide: guide } : {}), sizeRecommendation: text(row.recomendacion_talla), preparationTime: text(row.tiempo_preparacion), deliveryType: text(row.tipo_entrega), exchangePolicy: { allowed: boolean(row.permite_cambio), conditions: text(row.condiciones_cambio) },
       }
       // A previous product-level promotion must never silently apply to imported SKU prices.
       delete product.promotionalPriceCents
       validateCommerceProduct(product)
       if (available === null) issue(rowNumber, 'disponible', 'Disponibilidad no indicada; la variante queda sin disponibilidad confirmada', 'WARNING')
+      if (requestedActive && !readyForPublication) issue(rowNumber, 'activo', 'Se conserva como borrador: falta precio de venta o stock/disponibilidad verificable', 'WARNING')
       if (!sizes.length) issue(rowNumber, 'talla', 'Sin tallas documentadas', 'WARNING')
       if (stock === null && fulfillmentMode === 'STOCK') issue(
         rowNumber,

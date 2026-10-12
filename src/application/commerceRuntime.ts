@@ -84,6 +84,19 @@ const MUTATIONS=new Set<CommerceGatewayRequest['operation']>([
 ])
 export class PersistentCommerceRuntime{
  constructor(private readonly store:CommerceStateStore,private readonly maxAttempts=4){}
+ async executeMany(requests:readonly CommerceGatewayRequest[]):Promise<unknown[]>{
+  if(requests.length===0)return[]
+  const tenantId=requests[0].tenantId
+  if(requests.some(request=>request.tenantId!==tenantId||MUTATIONS.has(request.operation)))throw new Error('Batch reads must use one tenant and read-only operations')
+  for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
+   const loaded=await this.store.load(tenantId);const state=loaded?.state??createTenantCommerceState(tenantId)
+   const results=await Promise.all(requests.map(request=>buildGateway(state,request).execute(request)))
+   if(loaded&&!loaded.migrated)return results
+   try{await this.store.save(tenantId,state,loaded?.version??null);return results}
+   catch(error){if(!(error instanceof CommerceStateConflictError)||attempt===this.maxAttempts)throw error}
+  }
+  throw new Error('Commerce runtime retry limit reached')
+ }
  async execute(request:CommerceGatewayRequest):Promise<unknown>{
   for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
    const loaded=await this.store.load(request.tenantId);const state=loaded?.state??createTenantCommerceState(request.tenantId)

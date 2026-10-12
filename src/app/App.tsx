@@ -9,6 +9,7 @@ import { IntegrationsPage, RealBusinessesPage, RealCustomersPage, RealDashboardP
 import { OwnerPanelPage } from '../features/owner/OwnerPanelPage'
 import { LoginPage } from '../auth/LoginPage'
 import { RequireAuth } from '../auth/RequireAuth'
+import { PilotSandboxPage } from '../features/pilot/PilotSandboxPage'
 import '../styles/h3-operational.css'
 import '../styles/h3-final.css'
 import '../styles/h4-automation.css'
@@ -26,6 +27,7 @@ export function App(){
   return <BrowserRouter>
     <Routes>
       <Route path="/" element={<Navigate to="/dashboard" replace/>}/>
+      {(import.meta.env.DEV || import.meta.env.VITE_ENABLE_PILOT_SANDBOX === 'true') && <Route path="pilot-sandbox" element={<PilotSandboxPage/>}/>} 
       <Route path="store" element={<StorefrontPage/>}/>
       <Route path="store/:slug" element={<StorefrontPage/>}/>
 

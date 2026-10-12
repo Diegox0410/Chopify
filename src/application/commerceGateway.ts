@@ -42,6 +42,7 @@ export type CommerceGatewayOperation =
   | 'importCatalog'
   | 'ownerDashboard'
   | 'listOrders'
+  | 'listOrderActivities'
   | 'getOrderDetail'
   | 'listPaymentReviews'
   | 'listCustomers'
@@ -77,6 +78,7 @@ const requiredString=(value:unknown,label:string)=>{
 const optionalString=(value:unknown)=>typeof value==='string'&&value.trim()?value.trim():undefined
 const status=(order:Order)=>({
  orderId:order.id,
+ customerId:order.customerId,
  status:order.orderStatus==='CANCELLED'?'cancelled':
   order.fulfillmentStatus==='DELIVERED'?'delivered':
   order.fulfillmentStatus==='DISPATCHED'?'dispatched':
@@ -268,6 +270,7 @@ export class CommerceGateway {
      return{...order,customer:detail?customer(detail.customer):null}
     }))
    }
+   case 'listOrderActivities': return this.orders.listActivities(tenantId)
    case 'getOrderDetail':{
     const detail=await this.orders.getOrderDetail(tenantId,requiredString(input.orderId,'orderId'))
     if(!detail)return undefined

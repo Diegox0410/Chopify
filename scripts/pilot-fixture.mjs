@@ -1,0 +1,36 @@
+export function testPilotProduct() {
+  const image = { url: 'https://assets.example.test/pilot-daniela-vino.jpeg', alt: 'Imagen local del modelo Daniela en color Vino, asociada solo al fixture de prueba.' };
+  return {
+    tenantId: 'tenant-floes',
+    id: 'pilot-daniela-test-only',
+    sku: 'TEST-DANIELA-001',
+    slug: 'daniela-piloto-test-only',
+    name: 'Daniela (fixture de prueba)',
+    description: 'Registro ficticio local. No representa precio, disponibilidad ni una oferta comercial real.',
+    commercialSummary: 'Fixture local del sandbox; valores comerciales simulados.',
+    category: 'Fixture de integración',
+    status: 'ACTIVE',
+    visibility: 'VISIBLE',
+    fulfillmentMode: 'STOCK',
+    pricingStatus: 'READY',
+    costCents: null,
+    percentage: null,
+    percentageType: null,
+    salePriceCents: 3999,
+    promotionalPriceCents: 3499,
+    currency: 'USD',
+    images: [image],
+    variants: [{
+      id: 'pilot-daniela-vino-test-only',
+      sku: 'TEST-DANIELA-VINO-001',
+      color: 'Vino',
+      status: 'ACTIVE',
+      visibility: 'VISIBLE',
+      images: [image],
+      stock: 2,
+      initialStockBySize: { XS: 1, S: 1, M: 2, L: 1, XL: 1 },
+      fulfillmentMode: 'STOCK',
+      sizes: ['XS', 'S', 'M', 'L', 'XL'],
+    }],
+  };
+}

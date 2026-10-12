@@ -1,12 +1,12 @@
 import { ArrowRight, PackageCheck, ReceiptText, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { sampleOrderApp } from '../../application/sampleApp'
 import type { Order } from '../../domain'
 import { useUIStore } from '../../stores/uiStore'
 import { date, money, tenantNames } from '../commercial/formatters'
-import { EmptyState, SampleBadge, StatusPill, TenantFilter } from '../commercial/shared'
+import { EmptyState, StatusPill, TenantFilter } from '../commercial/shared'
 import { orderNumber } from './operational'
+import { adminApiForScope } from '../admin/adminApi'
 
 export function OrdersPage() {
   const scope = useUIStore((state) => state.tenantScope)
@@ -17,7 +17,7 @@ export function OrdersPage() {
   const [error, setError] = useState('')
   const load = useCallback(() => {
     setError('')
-    void sampleOrderApp.listOrders(scope).then(setItems).catch((cause: unknown) =>
+    void adminApiForScope<Order>('listOrders', scope).then(setItems).catch((cause: unknown) =>
       setError(cause instanceof Error ? cause.message : 'No fue posible cargar pedidos'))
   }, [scope])
   useEffect(() => { queueMicrotask(load) }, [load])
@@ -32,7 +32,7 @@ export function OrdersPage() {
   const total = filtered.reduce((sum, item) => sum + item.grandTotalCents, 0)
 
   return <div className="page">
-    <div className="page-heading"><div><span className="eyebrow">Order operations</span><h1>Pedidos</h1><p>Estado comercial, pago, reserva y fulfillment sin mezclar responsabilidades.</p></div><div className="heading-actions"><SampleBadge /><TenantFilter /></div></div>
+    <div className="page-heading"><div><span className="eyebrow">Order operations</span><h1>Pedidos</h1><p>Estado comercial, pago, reserva y fulfillment desde el registro persistente.</p></div><div className="heading-actions"><TenantFilter /></div></div>
     {error && <div className="error-banner">{error} <button onClick={load}>Reintentar</button></div>}
     <section className="h3-summary-grid">
       <article><ReceiptText size={18}/><span>Pedidos visibles</span><strong>{filtered.length}</strong></article>
