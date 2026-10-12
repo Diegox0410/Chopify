@@ -38,7 +38,7 @@ Current READY deployments for branch `sandbox/floes-commercial-202610`:
 
 | Project | READY Preview |
 |---|---|
-| FLOES storefront and Admin | `https://floes-commerce-git-sandbox-floes-commerc-501a8a-diegox-s-proyec.vercel.app` |
+| FLOES storefront and Admin | `https://floes-commerce-p1abfserz-diegox-s-proyec.vercel.app` |
 | Chopify simulator | `https://chopify-git-sandbox-floes-commercial-202610-diegox-s-proyec.vercel.app/pilot-sandbox` |
 | GanoBot runtime | `https://gano-bot-web-git-sandbox-floes-commercia-d6c86f-diegox-s-proyec.vercel.app` |
 
@@ -60,9 +60,9 @@ The following results were observed through the project-specific Vercel protecti
 | Order and fake proof | PASS | Test order `order-e7148af3-9e20-4008-a794-0f1abc494004`; fake transfer proof reached `PROOF_RECEIVED` and appeared in Owner payment reviews. |
 | Admin operation contract | PASS | The simulator's authenticated Chopify Owner reads/actions approved the fake proof, started preparation, marked ready, recorded fictitious dispatch, and delivered the order. Final status: `PAID` / `DELIVERED` / `COMPLETED`. No money, carrier, or customer message was sent. |
 | Post-sale | PASS | GanoBot recorded the synthetic customer's satisfaction follow-up for the delivered order. |
-| FLOES Admin route | ROUTE PASS; OWNER LOGIN PENDING | `/admin` returns the app shell, but the isolated Firebase project has no authorized Owner Auth user yet. The panel requires matching `VITE_OWNER_UID` and server-side `FLOES_OWNER_UID`; see the human action below. |
+| FLOES Admin route | READY; OWNER UID CONFIGURED | `/admin` returns HTTP 200. The Firebase Owner UID supplied by the user is configured as branch-specific Preview overrides for both `VITE_OWNER_UID` and `FLOES_OWNER_UID`, and the deployment was rebuilt afterward. Login itself remains unverified because the password stays private with the user. |
 
-The Preview Admin UI was not signed in during this run. The simulator's Owner panel used the same Chopify Owner commerce operations against the same sandbox state and verified the order. To enable direct `/admin` access, create a user under Firebase Authentication in `floes-commercial-sandbox-2026` and provide its UID (never its password); then configure that UID in the FLOES Preview branch overrides and rebuild FLOES Preview.
+The Admin page and its branch-scoped Owner configuration are ready. The user must sign in at `/admin` using the Firebase Authentication account created in `floes-commercial-sandbox-2026`; no password was requested or stored. Owner login was not tested from this session.
 
 One earlier live attempt returned `503 LIVE_UNAVAILABLE`: runtime logs identified `GanoBot → Chopify resolveCustomerIdentity` receiving HTTP 401 because Chopify Preview preferred an inherited `CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN` over the branch token. Preview-only branch overrides were aligned and rebuilt. The simulator also stopped sending `x-vercel-set-bypass-cookie: true` (which caused redirect loops) and now sends bypass credentials only in headers. Production environment scopes and deployments were not changed.
 
@@ -70,8 +70,8 @@ Cloud Storage remains unconfigured because billing was declined. The receipt is 
 
 Latest functional links (Vercel Deployment Protection still applies):
 
-- FLOES storefront: `https://floes-commerce-git-sandbox-floes-commerc-501a8a-diegox-s-proyec.vercel.app`
-- FLOES Admin login: `https://floes-commerce-git-sandbox-floes-commerc-501a8a-diegox-s-proyec.vercel.app/admin`
+- FLOES storefront: `https://floes-commerce-p1abfserz-diegox-s-proyec.vercel.app`
+- FLOES Admin login: `https://floes-commerce-p1abfserz-diegox-s-proyec.vercel.app/admin`
 - Commercial simulator: `https://chopify-git-sandbox-floes-commercial-202610-diegox-s-proyec.vercel.app/pilot-sandbox`
 
 ## Read/load minimization
