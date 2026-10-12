@@ -44,8 +44,36 @@ Current READY deployments for branch `sandbox/floes-commercial-202610`:
 
 All three deployments are protected by Vercel Deployment Protection. Server-to-server calls use separate automation bypasses and sandbox-only API bearer tokens; no bypass values are embedded in the links. Vercel environment overrides are scoped to this Git branch and Preview only. Chopify and GanoBot use distinct tokens generated for this sandbox; FLOES and GanoBot call the stable Chopify branch alias, and Chopify calls the stable GanoBot branch alias.
 
-The simulator route checks Preview environment isolation before any write. It seeds only the synthetic Daniela/Vino fixture in `floesCommerceSandboxState`. No Firestore read or write has been performed yet. Production aliases, environment scopes, Firebase credentials, and Meta/WhatsApp settings were not modified.
+The remote simulator route checks Preview environment isolation before any write. It seeds only the synthetic Daniela/Vino fixture in `floesCommerceSandboxState`.
+
+## Remote Preview verification — 12 October 2026
+
+The following results were observed through the project-specific Vercel protection bypasses. Bypass values and credentials were not logged or added to links.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Chopify Preview isolation | PASS | `/api/pilot-sandbox?action=health` returned HTTP 200, `ready=true`, Firebase project `floes-commercial-sandbox-2026`, collection `floesCommerceSandboxState`, tenant `tenant-floes`. |
+| FLOES → Chopify | PASS | FLOES `/api/catalog?tenant=tenant-floes` returned HTTP 200 with 5 products after fixture seed. `/api/store-config` returned HTTP 200 and `whatsappPurchaseEnabled=true`; a public WhatsApp number is present but not recorded here. |
+| GanoBot Preview health/auth | PASS | `/api/health` returned HTTP 200. The live conversation endpoint returned HTTP 200 after aligning the branch-only bearer and commerce credentials. |
+| Daniela/Vino/M image and caption | PASS | A new synthetic conversation selected the fixture product, Vino, and M; returned the Chopify Preview image and a caption with the synthetic price/stock data. |
+| Stock | PASS | Direct read-only Chopify `checkAvailability` returned M available, quantity 2 before order creation. After one draft order reserved one unit, it returned quantity 1. |
+| Order and fake proof | PASS | Test order `order-e7148af3-9e20-4008-a794-0f1abc494004`; fake transfer proof reached `PROOF_RECEIVED` and appeared in Owner payment reviews. |
+| Admin operation contract | PASS | The simulator's authenticated Chopify Owner reads/actions approved the fake proof, started preparation, marked ready, recorded fictitious dispatch, and delivered the order. Final status: `PAID` / `DELIVERED` / `COMPLETED`. No money, carrier, or customer message was sent. |
+| Post-sale | PASS | GanoBot recorded the synthetic customer's satisfaction follow-up for the delivered order. |
+| FLOES Admin route | ROUTE PASS; OWNER LOGIN PENDING | `/admin` returns the app shell, but the isolated Firebase project has no authorized Owner Auth user yet. The panel requires matching `VITE_OWNER_UID` and server-side `FLOES_OWNER_UID`; see the human action below. |
+
+The Preview Admin UI was not signed in during this run. The simulator's Owner panel used the same Chopify Owner commerce operations against the same sandbox state and verified the order. To enable direct `/admin` access, create a user under Firebase Authentication in `floes-commercial-sandbox-2026` and provide its UID (never its password); then configure that UID in the FLOES Preview branch overrides and rebuild FLOES Preview.
+
+One earlier live attempt returned `503 LIVE_UNAVAILABLE`: runtime logs identified `GanoBot → Chopify resolveCustomerIdentity` receiving HTTP 401 because Chopify Preview preferred an inherited `CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN` over the branch token. Preview-only branch overrides were aligned and rebuilt. The simulator also stopped sending `x-vercel-set-bypass-cookie: true` (which caused redirect loops) and now sends bypass credentials only in headers. Production environment scopes and deployments were not changed.
+
+Cloud Storage remains unconfigured because billing was declined. The receipt is a fake reference only. No WhatsApp/Meta, real payment, or Production service was used. A sandbox Firestore document, synthetic customers, fixture, order, payment-review record, fulfillment transitions, and post-sale follow-up were created only in the isolated sandbox project.
+
+Latest functional links (Vercel Deployment Protection still applies):
+
+- FLOES storefront: `https://floes-commerce-git-sandbox-floes-commerc-501a8a-diegox-s-proyec.vercel.app`
+- FLOES Admin login: `https://floes-commerce-git-sandbox-floes-commerc-501a8a-diegox-s-proyec.vercel.app/admin`
+- Commercial simulator: `https://chopify-git-sandbox-floes-commercial-202610-diegox-s-proyec.vercel.app/pilot-sandbox`
 
 ## Read/load minimization
 
-The interactive sandbox is in-memory and performs no Firestore reads. For a later remote sandbox, keep Admin lists paginated, request only the current tenant and required fields, avoid realtime listeners for the pilot screens, and cache only safe, short-lived read snapshots. Inventory availability and payment/operation actions must remain fresh server-side checks; do not rely on a client cache for order acceptance.
+The local interactive harness is in-memory and performs no Firestore reads. The remote Preview simulator uses the sandbox Firestore document and performs server-side state reads/writes when its Owner operations run. Keep Admin lists paginated, request only the current tenant and required fields, avoid realtime listeners for the pilot screens, and cache only safe, short-lived read snapshots. Inventory availability and payment/operation actions must remain fresh server-side checks; do not rely on a client cache for order acceptance.
