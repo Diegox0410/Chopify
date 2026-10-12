@@ -100,7 +100,7 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
   return async function pilotSandboxHandler(request: ApiRequest, response: ApiResponse) {
     if (env.VERCEL_ENV !== 'preview') return reply(response, 404, { ok: false, error: 'Sandbox route unavailable.' })
     const action = queryAction(request)
-    if (!['health', 'seed', 'chat', 'admin', 'order', 'admin-action', 'new-session'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
+    if (!['health', 'seed', 'chat', 'admin', 'order', 'admin-action', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
     const readiness = readSandboxReadiness(env)
     if (!readiness.ready) return reply(response, 503, { ok: false, error: 'Sandbox isolation or Preview connection is not ready.', checks: readiness.checks })
 
@@ -139,6 +139,37 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
         return reply(response, 200, { ok: true, sandbox: true, tenantId: TENANT_ID, paymentReviews: values[0], orders: values[1], customers: values[2], products: values[3] })
       } catch {
         return reply(response, 502, { ok: false, error: 'Chopify Preview no respondió la lectura Owner del sandbox.' })
+      }
+    }
+
+    if (request.method === 'GET' && action === 'stock') {
+      try {
+        const params = new URL(request.url ?? '/', 'https://sandbox.invalid').searchParams
+        const productId = params.get('productId')?.trim() ?? ''
+        const variantId = params.get('variantId')?.trim() ?? ''
+        const size = params.get('size')?.trim().toUpperCase() ?? ''
+        if (!/^[A-Za-z0-9._:-]{1,160}$/.test(productId) || !/^[A-Za-z0-9._:-]{1,160}$/.test(variantId) || !/^[A-Za-z0-9._:-]{1,32}$/.test(size)) {
+          return reply(response, 400, { ok: false, error: 'Producto, variante y talla son obligatorios.' })
+        }
+        const commerceToken = (env.CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN ?? env.CHOPIFY_COMMERCE_API_TOKEN)?.trim()
+        if (!commerceToken) return reply(response, 503, { ok: false, error: 'Chopify Commerce Preview no está configurado.' })
+        const result = await fetchImpl(`${origin}/api/commerce`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${commerceToken}`,
+            'Content-Type': 'application/json',
+            'x-chopify-tenant-id': TENANT_ID,
+            'x-vercel-protection-bypass': bypass,
+          },
+          body: JSON.stringify({ operation: 'checkAvailability', input: { productId, variantId, size, quantity: 1 } }),
+          signal: AbortSignal.timeout(15_000),
+        })
+        const payload = record(await result.json().catch(() => ({})))
+        if (!result.ok || payload.ok !== true) return reply(response, 502, { ok: false, error: 'Chopify no pudo confirmar el stock sandbox.' })
+        const data = record(payload.data)
+        return reply(response, 200, { ok: true, sandbox: true, data: { productId, variantId, size, available: data.available === true, ...(typeof data.availableQuantity === 'number' ? { availableQuantity: data.availableQuantity } : {}), ...(typeof data.reason === 'string' ? { reason: data.reason } : {}) } })
+      } catch {
+        return reply(response, 502, { ok: false, error: 'No fue posible consultar el stock sandbox.' })
       }
     }
 

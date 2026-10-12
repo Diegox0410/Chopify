@@ -20,6 +20,7 @@ function readyEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv 
     CHOPIFY_FIREBASE_PROJECT_ID: 'floes-commercial-sandbox-2026',
     FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({ project_id: 'floes-commercial-sandbox-2026', client_email: 'sandbox@example.invalid', private_key: 'not-used-in-this-test' }),
     CHOPIFY_COMMERCE_STATE_COLLECTION: 'floesCommerceSandboxState',
+    CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN: 'fake-commerce-token',
     CHOPIFY_VERCEL_PROTECTION_BYPASS_SECRET: 'fake-chopify-bypass',
     GANOBOT_VERCEL_PROTECTION_BYPASS_SECRET: 'fake-gano-bypass',
     GANOBOT_LIVE_URL: 'https://gano-bot-abc123456-diegox-s-proyec.vercel.app',
@@ -87,5 +88,19 @@ describe('Preview commercial sandbox API', () => {
     const [, init] = fetch.mock.calls[0]
     expect(new Headers(init?.headers).get('x-vercel-protection-bypass')).toBe('fake-chopify-bypass')
     expect(new Headers(init?.headers).has('x-vercel-set-bypass-cookie')).toBe(false)
+  })
+
+  it('checks fixture stock through the read-only Commerce operation and returns only safe stock fields', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { available: true, availableQuantity: 2, fulfillmentMode: 'STOCK' } }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
+    const res = response()
+    await handler({ method: 'GET', url: '/api/pilot-sandbox?action=stock&productId=pilot-daniela-test-only&variantId=pilot-daniela-vino-test-only&size=M', headers: {} }, res)
+    expect(res.statusCode).toBe(200)
+    const [url, init] = fetch.mock.calls[0]
+    expect(String(url)).toMatch(/\/api\/commerce$/)
+    expect(JSON.parse(String(init?.body))).toMatchObject({ operation: 'checkAvailability', input: { productId: 'pilot-daniela-test-only', variantId: 'pilot-daniela-vino-test-only', size: 'M', quantity: 1 } })
+    expect(new Headers(init?.headers).get('x-chopify-tenant-id')).toBe('tenant-floes')
+    expect(JSON.parse(res.body)).toMatchObject({ ok: true, sandbox: true, data: { available: true, availableQuantity: 2 } })
+    expect(JSON.stringify(JSON.parse(res.body))).not.toMatch(/fake-commerce-token|fake-chopify-bypass/)
   })
 })

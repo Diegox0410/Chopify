@@ -179,7 +179,7 @@ export function PilotSandboxPage() {
           {orderId && value(selection, 'orderStatus') === 'delivered' && <p className="pilot-muted">Escribe “Ya recibí mi pedido y estoy contenta” para registrar postventa con GanoBot.</p>}
         </section>
 
-        <section className="panel pilot-card pilot-audit"><div className="pilot-panel-heading"><div><span className="pilot-eyebrow">Lecturas de la sesión</span><h2>Registros</h2></div></div><p>Clientes: <strong>{admin.customers.length}</strong> · Productos: <strong>{admin.products.length}</strong> · Pedidos: <strong>{admin.orders.length}</strong></p><p>Origen: handler real de Chopify y endpoint Owner FLOES. Persistencia: adaptador en memoria.</p></section>
+        <section className="panel pilot-card pilot-audit"><div className="pilot-panel-heading"><div><span className="pilot-eyebrow">Lecturas de la sesión</span><h2>Registros</h2></div></div><p>Clientes: <strong>{admin.customers.length}</strong> · Productos: <strong>{admin.products.length}</strong> · Pedidos: <strong>{admin.orders.length}</strong></p><p>Origen: handler real de Chopify y endpoint Owner FLOES. Persistencia: Firestore sandbox aislado.</p></section>
       </aside>
     </section>
     <footer className="pilot-footnote">La conversación usa GanoBot Preview y el contrato Commerce Owner de Chopify Preview. Los registros permanecen en el proyecto Firebase sandbox y no representan una venta real.</footer>
