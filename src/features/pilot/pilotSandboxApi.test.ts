@@ -67,11 +67,25 @@ describe('Preview commercial sandbox API', () => {
     expect(res.statusCode).toBe(200)
     expect(fetch).toHaveBeenCalledOnce()
     const [url, init] = fetch.mock.calls[0]
-    expect(String(url)).toMatch(/^https:\/\/gano-bot-.*\.vercel\.app\/api\/live\?x-vercel-protection-bypass=/)
+    expect(String(url)).toMatch(/^https:\/\/gano-bot-.*\.vercel\.app\/api\/live$/)
+    expect(new Headers(init?.headers).get('x-vercel-protection-bypass')).toBe('fake-gano-bypass')
+    expect(new Headers(init?.headers).has('x-vercel-set-bypass-cookie')).toBe(false)
     const outgoing = JSON.parse(String(init?.body))
     expect(outgoing.customer.phone).toMatch(/^999\d{9}$/)
     expect(outgoing.text).toBe('Hola, ¿qué modelos tienen?')
     expect(outgoing.paymentProofReference).toBeUndefined()
     expect(JSON.parse(res.body).selection.productId).toBe('pilot-daniela-test-only')
+  })
+
+  it('calls the Chopify owner endpoint with the bypass header and without setting a bypass cookie', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: [] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
+    const res = response()
+    await handler({ method: 'GET', url: requestUrl('admin'), headers: {} }, res)
+    expect(res.statusCode).toBe(200)
+    expect(fetch).toHaveBeenCalledTimes(4)
+    const [, init] = fetch.mock.calls[0]
+    expect(new Headers(init?.headers).get('x-vercel-protection-bypass')).toBe('fake-chopify-bypass')
+    expect(new Headers(init?.headers).has('x-vercel-set-bypass-cookie')).toBe(false)
   })
 })

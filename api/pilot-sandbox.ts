@@ -113,7 +113,6 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
       'x-chopify-tenant-id': TENANT_ID,
       'x-chopify-access-scope': 'owner',
       'x-vercel-protection-bypass': bypass,
-      'x-vercel-set-bypass-cookie': 'true',
     }
 
     const ownerCall = async (operation: CommerceGatewayOperation, input: Record<string, unknown> = {}) => {
@@ -204,12 +203,15 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
       const customerName = typeof body.customerName === 'string' ? body.customerName.replaceAll('<', '').replaceAll('>', '').split('').filter(char => char.charCodeAt(0) >= 0x20).join('').trim().slice(0, 100) : 'Cliente FLOES sandbox'
       const fakeProof = body.fakeProof === true
       const liveUrl = new URL('/api/live', env.GANOBOT_LIVE_URL!)
-      liveUrl.searchParams.set('x-vercel-protection-bypass', env.GANOBOT_VERCEL_PROTECTION_BYPASS_SECRET!.trim())
       const fakeReference = fakeProof ? `meta-whatsapp://123456789012345/media/sandbox-proof-${randomUUID().replaceAll('-', '')}` : undefined
       try {
         const result = await fetchImpl(liveUrl, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${env.GANOBOT_LIVE_BEARER_TOKEN!.trim()}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${env.GANOBOT_LIVE_BEARER_TOKEN!.trim()}`,
+            'Content-Type': 'application/json',
+            'x-vercel-protection-bypass': env.GANOBOT_VERCEL_PROTECTION_BYPASS_SECRET!.trim(),
+          },
           body: JSON.stringify({ tenantId: TENANT_ID, channel: 'WHATSAPP', providerMessageId: `sandbox-${randomUUID()}`, customer: { name: customerName || 'Cliente FLOES sandbox', phone: fakeCustomerPhone(sessionId) }, text: message, ...(fakeReference ? { paymentProofReference: fakeReference } : {}) }),
           signal: AbortSignal.timeout(30_000),
         })
