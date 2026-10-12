@@ -15,9 +15,9 @@ The sandbox listens only on loopback, seeds a conspicuously synthetic Daniela/Vi
 
 ## Firebase inventory and safe target
 
-Firebase CLI lists these active projects: `chopify-f9b1c`, `dgng-store`, `floes-commerce`, `gano-sim-premium`, and `mgtrataseccommerce`. None is explicitly identified as a dedicated FLOES pilot sandbox. `floes-commerce`, `chopify-f9b1c`, and `gano-sim-premium` are associated with existing services; do not use them for commercial sandbox writes. A Preview collection inside Chopify's shared Firebase project is not sufficient isolation because it shares project quota and Storage configuration.
+Dedicated Firebase project `floes-commercial-sandbox-2026` is provisioned with its own default Firestore database in `nam5`; deletion protection is enabled. The `floes-sandbox-runtime` service account has Firestore data access scoped to this project, and its credential is configured only on the sandbox Preview branch in Chopify and GanoBot. The web app configuration also points to this Firebase project.
 
-No Firebase project, Firestore database, Storage bucket, service account, or rules were created or changed. To enable remote Preview writes safely, choose or authorize a new dedicated Firebase project, then provision its Firestore and Storage there. Create a distinct server credential scoped to that sandbox project/bucket; never copy Production credentials. Keep all records fixed to `tenant-floes` and reject a tenant supplied by an untrusted client.
+Cloud Storage was not created because the project has no billing account and enabling paid storage was declined. The pilot represents a receipt with a fake reference and never uploads a file. Firestore records are fixed to `tenant-floes`; production service credentials and Production environment scopes remain unchanged. The server Admin SDK uses the sandbox-only service account; no direct browser writes are required.
 
 Suggested initial client security rules for that dedicated project (server Admin SDK calls still require least-privilege IAM):
 
@@ -34,17 +34,17 @@ Use the same deny-by-default posture for direct Storage access. If the Preview U
 
 ## Preview targets inspected
 
-Latest READY Preview deployments from the current Vercel listing:
+Current READY deployments for branch `sandbox/floes-commercial-202610`:
 
 | Project | READY Preview |
 |---|---|
-| FLOES | `https://floes-commerce-jyzgmh1fk-diegox-s-proyec.vercel.app` |
-| Chopify | `https://chopify-lpui11ncd-diegox-s-proyec.vercel.app` |
-| GanoBot | `https://gano-bot-edc75gy1m-diegox-s-proyec.vercel.app` |
+| FLOES storefront and Admin | `https://floes-commerce-git-sandbox-floes-commerc-501a8a-diegox-s-proyec.vercel.app` |
+| Chopify simulator | `https://chopify-git-sandbox-floes-commercial-202610-diegox-s-proyec.vercel.app/pilot-sandbox` |
+| GanoBot runtime | `https://gano-bot-web-git-sandbox-floes-commercia-d6c86f-diegox-s-proyec.vercel.app` |
 
-The deployment hosts are SSO protected; no remote API calls were made. The previously inspected GanoBot Preview `CHOPIFY_COMMERCE_BASE_URL` points to an older Chopify Preview. FLOES Preview's `CHOPIFY_BASE_URL` is masked by Vercel as a Secret, so its current target could not be verified. The bypass variables remain server-side and must be the corresponding project-scoped Preview values; never put them in Vite client variables.
+All three deployments are protected by Vercel Deployment Protection. Server-to-server calls use separate automation bypasses and sandbox-only API bearer tokens; no bypass values are embedded in the links. Vercel environment overrides are scoped to this Git branch and Preview only. Chopify and GanoBot use distinct tokens generated for this sandbox; FLOES and GanoBot call the stable Chopify branch alias, and Chopify calls the stable GanoBot branch alias.
 
-After authorization, the Preview-only target value for both service base URL settings should be the Chopify host in the table above. Verify the Vercel env scopes and owner/bypass access first, then deploy only the affected Preview projects to activate them. No Production scope or Production alias should be changed.
+The simulator route checks Preview environment isolation before any write. It seeds only the synthetic Daniela/Vino fixture in `floesCommerceSandboxState`. No Firestore read or write has been performed yet. Production aliases, environment scopes, Firebase credentials, and Meta/WhatsApp settings were not modified.
 
 ## Read/load minimization
 
