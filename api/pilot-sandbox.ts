@@ -201,7 +201,7 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
       const message = typeof body.message === 'string' ? body.message.trim() : ''
       if (!message || message.length > 1000) return reply(response, 400, { ok: false, error: 'El mensaje debe tener entre 1 y 1000 caracteres.' })
       const sessionId = typeof body.sessionId === 'string' && /^[0-9a-f-]{36}$/i.test(body.sessionId) ? body.sessionId.toLowerCase() : randomUUID()
-      const customerName = typeof body.customerName === 'string' ? body.customerName.replace(/[<>\x00-\x1f]/g, '').trim().slice(0, 100) : 'Cliente FLOES sandbox'
+      const customerName = typeof body.customerName === 'string' ? body.customerName.replaceAll('<', '').replaceAll('>', '').split('').filter(char => char.charCodeAt(0) >= 0x20).join('').trim().slice(0, 100) : 'Cliente FLOES sandbox'
       const fakeProof = body.fakeProof === true
       const liveUrl = new URL('/api/live', env.GANOBOT_LIVE_URL!)
       liveUrl.searchParams.set('x-vercel-protection-bypass', env.GANOBOT_VERCEL_PROTECTION_BYPASS_SECRET!.trim())

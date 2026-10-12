@@ -60,7 +60,7 @@ describe('Preview commercial sandbox API', () => {
   })
 
   it('sends only a synthetic client identity to the GanoBot Preview live endpoint', async () => {
-    const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ reply: 'Respuesta de prueba.', messages: [{ type: 'text', text: 'Respuesta de prueba.' }], commerce: { tenantId: 'tenant-floes', productId: 'pilot-daniela-test-only' } }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ reply: 'Respuesta de prueba.', messages: [{ type: 'text', text: 'Respuesta de prueba.' }], commerce: { tenantId: 'tenant-floes', productId: 'pilot-daniela-test-only' } }), { status: 200, headers: { 'content-type': 'application/json' } }))
     const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
     const res = response()
     await handler({ method: 'POST', url: requestUrl('chat'), headers: {}, body: { message: 'Hola, ¿qué modelos tienen?', sessionId: '11111111-1111-4111-8111-111111111111', customerName: 'Cliente de prueba' } }, res)
