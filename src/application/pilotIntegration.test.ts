@@ -101,6 +101,9 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
 
     const memoryStore = new MemoryCommerceStateStore();
     const seed = createTenantCommerceState(tenantId);
+    const fixtureTime = "2026-10-13T00:00:00.000Z";
+    seed.commercial.customers.push({ id: "customer-test-only", tenantId, name: "Cliente aislado", phone: "593000000099", status: "LEAD", createdAt: fixtureTime, updatedAt: fixtureTime });
+    seed.commercial.conversations.push({ id: "conversation-test-only", tenantId, customerId: "customer-test-only", channel: "WEB", status: "OPEN", assignedMode: "AUTOMATION", startedAt: fixtureTime, lastActivityAt: fixtureTime, createdAt: fixtureTime, updatedAt: fixtureTime });
     seed.orders.products = [testProduct()];
     seed.orders.inventory = [{ tenantId, productId, variantId, size: "M", onHand: 2, reserved: 0 }];
     await memoryStore.save(tenantId, seed, null);
@@ -192,7 +195,7 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
     const runTool = async (toolSet: readonly any[], name: string, args: Record<string, unknown>) => {
       const tool = toolSet.find(item => item.descriptor.id === name);
       expect(tool, `GanoBot tool not registered: ${name}`).toBeTruthy();
-      return tool.handler.execute(args, { tenantId, assistantId, actorId: "customer-test-only", conversationId: "conversation-test-only", requestId: `gano-${calls.length}`, correlationId: `gano-corr-${calls.length}`, metadata: {} });
+      return tool.handler.execute(args, { tenantId, assistantId, actorId: "customer-test-only", conversationId: "conversation-test-only", requestId: `gano-${calls.length}`, correlationId: `gano-corr-${calls.length}`, metadata: { customerId: "customer-test-only" } });
     };
     const history = (selection: Record<string, string>) => [{ role: "assistant", content: "Selección comercial", metadata: { commerceSelection: JSON.stringify(selection) } }];
 

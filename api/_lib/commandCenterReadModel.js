@@ -1,5 +1,55 @@
 import { createHash } from 'node:crypto'
-import { groupLiveConversations } from '../conversations.js'
+
+const eventTime = item => item.sentAt || item.createdAt || item.receivedAt || ''
+const outboundText = item => {
+  const parts = [item.text]
+  try {
+    const messages = JSON.parse(item.messagesJson || '[]')
+    if (Array.isArray(messages)) for (const message of messages) {
+      if (message?.type === 'text' && typeof message.text === 'string') parts.push(message.text)
+      if (message?.type === 'image' && typeof message.caption === 'string') parts.push(message.caption)
+    }
+  } catch { /* legacy outbox rows keep their text field */ }
+  return [...new Set(parts.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))].join('\n')
+}
+
+function groupLiveConversations(documents, tenantId) {
+  const inbound = documents.filter(item => item.id.startsWith('in_') && item.tenantId === tenantId)
+  const outByInbound = new Map()
+  for (const item of documents.filter(item => item.id.startsWith('out_') && item.tenantId === tenantId)) {
+    const group = outByInbound.get(item.inboundId) || []
+    group.push(item)
+    outByInbound.set(item.inboundId, group)
+  }
+  const metadata = new Map(documents.filter(item => item.id.startsWith('thread_') && item.tenantId === tenantId).map(item => [item.conversationId, item]))
+  const byConversation = new Map()
+  for (const item of inbound) {
+    const externalId = item.externalCustomerId || item.from || item.id
+    const id = item.conversationId || `conversation_${createHash('sha256').update(`${tenantId}:WHATSAPP:${externalId}`).digest('hex')}`
+    const group = byConversation.get(id) || { id, events: [], latestInbound: item }
+    group.events.push(item)
+    if (eventTime(item) > eventTime(group.latestInbound)) group.latestInbound = item
+    byConversation.set(id, group)
+  }
+  return [...byConversation.values()].map(group => {
+    const events = group.events.flatMap(item => [
+      { id: item.id, direction: 'INBOUND', senderType: 'CLIENT', text: item.text || '', createdAt: eventTime(item), status: item.status || 'RECEIVED' },
+      ...(outByInbound.get(item.id) || []).map(outbound => ({ id: outbound.id, direction: 'OUTBOUND', senderType: outbound.senderType === 'HUMAN' || outbound.mode === 'HUMAN' ? 'HUMAN' : outbound.senderType === 'SYSTEM' || outbound.mode === 'SYSTEM' ? 'SISTEMA' : 'GANOBOT', text: outboundText(outbound), createdAt: eventTime(outbound), status: outbound.status || 'PENDING' })),
+    ]).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const latestInbound = group.latestInbound
+    const thread = metadata.get(group.id)
+    const outbound = group.events.flatMap(item => outByInbound.get(item.id) || []).sort((a, b) => eventTime(a).localeCompare(eventTime(b))).at(-1)
+    const requiresHuman = thread ? thread.requiresHuman === 'true' : group.events.some(item => ['NEEDS_HUMAN', 'HUMAN_QUEUED'].includes(item.status))
+    return {
+      id: group.id, tenantId, channel: 'WHATSAPP', contact: latestInbound.name || 'Cliente WhatsApp',
+      lastActivityAt: events.at(-1)?.createdAt || eventTime(latestInbound), messageCount: events.length,
+      timeline: events, status: events.at(-1)?.status || latestInbound.status || 'RECEIVED',
+      mode: thread?.mode || outbound?.mode || (requiresHuman ? 'HUMAN' : 'GANOBOT_LIVE'), requiresHuman,
+      unreadCount: group.events.filter(item => eventTime(item) > (thread?.readAt || '')).length,
+      outbound: outbound ? { status: outbound.status || 'PENDING', mode: outbound.mode || '', attempts: Number(outbound.attempts || 0), createdAt: outbound.createdAt || '', sentAt: outbound.sentAt || '', providerMessageId: outbound.providerMessageId || '', error: outbound.error || '', httpStatus: outbound.httpStatus ? Number(outbound.httpStatus) : null, metaErrorCode: outbound.metaErrorCode ? Number(outbound.metaErrorCode) : null, metaErrorType: outbound.metaErrorType || '', fbtraceId: outbound.fbtraceId || '' } : null,
+    }
+  }).sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+}
 
 const digits = value => String(value || '').replace(/\D/g, '')
 export const operationalAlertId = (tenantId, type, sourceId) => `alert_${createHash('sha256').update(`${tenantId}:${type}:${sourceId}`).digest('hex')}`
