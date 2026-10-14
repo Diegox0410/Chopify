@@ -1,17 +1,17 @@
 {
   "functions": {
     "api/*.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/*.ts": {
       "maxDuration": 30
-    },
-    "api/channel-outbox-worker.js": {
-      "maxDuration": 60
     }
   },
   "crons": [
-    { "path": "/api/channel-outbox-worker", "schedule": "0 9 * * *" }
+    {
+      "path": "/api/channel-outbox-worker",
+      "schedule": "0 9 * * *"
+    }
   ],
   "rewrites": [
     {
@@ -20,4 +20,3 @@
     }
   ]
 }
-
