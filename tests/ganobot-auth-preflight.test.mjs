@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createGanoBotAuthPreflightHandler } from '../api/ganobot-auth-preflight.js'
+import { createGanoBotAuthPreflightHandler } from '../api/_lib/ganobot-auth-preflight.js'
 
 function response() {
   return {
@@ -110,3 +110,4 @@ test('allows only POST', async () => {
   assert.equal(res.statusCode, 405)
   assert.equal(calls, 0)
 })
+

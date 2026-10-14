@@ -112,4 +112,3 @@ export function createGanoBotAuthPreflightHandler({
   }
 }
 
-export default createGanoBotAuthPreflightHandler()
