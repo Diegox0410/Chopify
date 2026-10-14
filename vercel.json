@@ -11,7 +11,7 @@
     }
   },
   "crons": [
-    { "path": "/api/channel-outbox-worker", "schedule": "* * * * *" }
+    { "path": "/api/channel-outbox-worker", "schedule": "0 9 * * *" }
   ],
   "rewrites": [
     {
@@ -20,3 +20,4 @@
     }
   ]
 }
+
