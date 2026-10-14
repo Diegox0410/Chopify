@@ -9,6 +9,7 @@ import { SupervisorApplication } from './supervisor.js'
 import { CustomerIdentityResolver } from './customerIdentityResolver.js'
 import { CommerceGateway,type CommerceGatewayRequest } from './commerceGateway.js'
 import { tenantDefinitions } from '../config/tenantRegistry.js'
+import { createOwnerCatalogSnapshot } from './catalogSnapshot.js'
 
 export { tenantDefinitions } from '../config/tenantRegistry.js'
 
@@ -80,29 +81,37 @@ function buildGateway(state:CommerceRuntimeState,trace:Pick<CommerceGatewayReque
 const MUTATIONS=new Set<CommerceGatewayRequest['operation']>([
  'createOrUpdateCustomer','createOpportunity','createOrderDraft','attachPaymentProof','requestHumanEscalation','resolveCustomerIdentity',
  'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
- 'syncFloesCatalog','updateProduct','importCatalog','updateOrderDelivery','recordOrderFollowUp',
+ 'syncFloesCatalog','updateProduct','importCatalog','updateOrderDelivery','recordOrderFollowUp','addCustomerNote','resolveEscalation',
 ])
 export class PersistentCommerceRuntime{
  constructor(private readonly store:CommerceStateStore,private readonly maxAttempts=4){}
+ async readCatalogSnapshot(tenantId:string){
+  if(!tenantDefinitions[tenantId])throw new Error('Unknown tenant')
+  const loaded=await this.store.load(tenantId)
+  if(!loaded||loaded.migrated)throw new Error('Canonical catalog snapshot requires an existing current-schema state')
+  return createOwnerCatalogSnapshot({tenantId,capturedAt:new Date().toISOString(),stateVersion:loaded.version,
+   products:loaded.state.orders.products,inventory:loaded.state.orders.inventory})
+ }
  async executeMany(requests:readonly CommerceGatewayRequest[]):Promise<unknown[]>{
   if(requests.length===0)return[]
   const tenantId=requests[0].tenantId
   if(requests.some(request=>request.tenantId!==tenantId||MUTATIONS.has(request.operation)))throw new Error('Batch reads must use one tenant and read-only operations')
   for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
    const loaded=await this.store.load(tenantId);const state=loaded?.state??createTenantCommerceState(tenantId)
-   const results=await Promise.all(requests.map(request=>buildGateway(state,request).execute(request)))
-   if(loaded&&!loaded.migrated)return results
-   try{await this.store.save(tenantId,state,loaded?.version??null);return results}
-   catch(error){if(!(error instanceof CommerceStateConflictError)||attempt===this.maxAttempts)throw error}
+   // Reads never initialize or migrate persisted state. Missing configuration is
+   // represented by an empty projection, not by an implicit Production write.
+   return Promise.all(requests.map(request=>request.operation==='getCatalogSnapshot'
+    ? this.readCatalogSnapshot(tenantId):buildGateway(state,request).execute(request)))
   }
   throw new Error('Commerce runtime retry limit reached')
  }
  async execute(request:CommerceGatewayRequest):Promise<unknown>{
+  if(request.operation==='getCatalogSnapshot')return this.readCatalogSnapshot(request.tenantId)
   for(let attempt=1;attempt<=this.maxAttempts;attempt+=1){
    const loaded=await this.store.load(request.tenantId);const state=loaded?.state??createTenantCommerceState(request.tenantId)
    if(!loaded&&request.tenantId==='tenant-floes'&&request.operation==='importCatalog')state.orders.products=[]
    const result=await buildGateway(state,request).execute(request)
-   const shouldPersist=MUTATIONS.has(request.operation)||!loaded||loaded.migrated===true
+   const shouldPersist=MUTATIONS.has(request.operation)
    if(!shouldPersist)return result
    try{await this.store.save(request.tenantId,state,loaded?.version??null);return result}
    catch(error){if(!(error instanceof CommerceStateConflictError)||attempt===this.maxAttempts)throw error}

@@ -16,7 +16,7 @@ describe('Commerce API authorization boundary',()=>{
  afterAll(()=>{for(const key of keys){const value=previous[key];if(value===undefined)delete process.env[key];else process.env[key]=value}})
  it('returns 401 for missing or invalid credentials',async()=>{expect((await invoke({'x-chopify-tenant-id':'tenant-floes'})).status).toBe(401);expect((await invoke({'x-chopify-tenant-id':'tenant-floes',authorization:'Bearer wrong'})).status).toBe(401)})
  it('returns 403 when a valid Operations credential crosses its allowlist',async()=>{const result=await invoke({'x-chopify-tenant-id':'tenant-mg',authorization:'Bearer operations-test'},'listOrders');expect(result.status).toBe(403)})
- it('returns 403 when a valid owner credential targets another tenant',async()=>{const result=await invoke({'x-chopify-tenant-id':'tenant-mg','x-chopify-access-scope':'owner',authorization:'Bearer owner-floes-test'},'listOrders');expect(result.status).toBe(403)})
+ it('rejects an Owner credential when the credential for the requested tenant is unavailable',async()=>{const result=await invoke({'x-chopify-tenant-id':'tenant-mg','x-chopify-access-scope':'owner',authorization:'Bearer owner-floes-test'},'listOrders');expect(result.status).toBe(401)})
  it('automation cannot approve payments or impersonate an Owner',async()=>{
   expect((await invoke({'x-chopify-tenant-id':'tenant-floes',authorization:'Bearer commerce-test'},'approvePayment')).status).toBe(401)
   expect((await invoke({'x-chopify-tenant-id':'tenant-floes','x-chopify-access-scope':'owner',authorization:'Bearer commerce-test'},'approvePayment')).status).toBe(401)
@@ -26,7 +26,7 @@ describe('Commerce API authorization boundary',()=>{
   try{
    const result=await invoke({'x-chopify-tenant-id':'tenant-floes','x-chopify-access-scope':'owner',authorization:'Bearer owner-floes-test'},'approvePayment')
    expect(result.status).toBe(200)
-   expect(execute).toHaveBeenCalledWith(expect.objectContaining({actor:{actorId:'chopify-owner:tenant-floes',role:'TENANT_OWNER',tenantId:'tenant-floes'}}))
+   expect(execute).toHaveBeenCalledWith(expect.objectContaining({actor:{actorId:'service-owner:tenant-floes',role:'TENANT_OWNER',tenantId:'tenant-floes'}}))
   }finally{execute.mockRestore()}
  })
  it('allows delivery and follow-up through Commerce automation credentials',async()=>{

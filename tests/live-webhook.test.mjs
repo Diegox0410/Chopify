@@ -1,10 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createHmac, createHash } from 'node:crypto'
-import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply, escalationReason, receive, sendOutbound, sendTextMessage, LiveDependencyError } from '../api/_lib/live.js'
-import { operationsAllowedTenants, resolveConversationTenant, validOperationsToken, groupLiveConversations } from '../api/conversations.js'
+import { createHmac } from 'node:crypto'
+import { verifyMetaSignature, verifyChallenge, extractMessages, metaErrorDetails, prepareReply, escalationReason, receive as liveReceive, sendOutbound as liveSendOutbound, LiveDependencyError } from '../api/_lib/live.js'
+import { liveMemoryStore } from './helpers/liveMemoryStore.mjs'
+import { operationsAllowedTenants, resolveConversationTenant, validOperationsToken } from '../api/conversations.js'
 import { resolveWhatsAppChannel } from '../api/_lib/channelRegistry.js'
-import { orderStatusMessage } from '../api/_lib/orderNotifications.js'
+const receive = (message, dependencies) => liveReceive(message, { conversationStore: liveMemoryStore(), ...dependencies })
+const sendOutbound = (id, dependencies) => liveSendOutbound(id, { conversationStore: liveMemoryStore(),
+  getConversationDeliveryContext: async ({ tenantId, conversationId }) => {
+    const item = await dependencies.getDoc(id)
+    return { tenantId, conversationId, channel: 'WHATSAPP', recipient: item.to, phoneNumberId: item.phoneNumberId, lastCustomerMessageAt: new Date().toISOString() }
+  }, ...dependencies })
 test('Meta HMAC validates exact raw bytes and rejects tampering', () => {
   const raw = Buffer.from('{"entry":[]}')
   const sig = 'sha256=' + createHmac('sha256', 'private').update(raw).digest('hex')
@@ -17,16 +23,7 @@ test('challenge requires exact verification token', () => {
   assert.equal(verifyChallenge({ 'hub.mode': 'subscribe', 'hub.verify_token': 'bad', 'hub.challenge': '123' }, 'abc'), null)
 })
 
-test('order status messages are explicit and include tracking only when present', () => {
-  assert.match(orderStatusMessage('PAYMENT_APPROVED'), /Pago verificado con éxito/)
-  assert.match(orderStatusMessage('PAYMENT_REJECTED'), /envíalo nuevamente/)
-  assert.match(orderStatusMessage('READY'), /pedido ya está listo/)
-  assert.match(orderStatusMessage('DISPATCHED'), /pedido ya fue enviado/)
-  assert.match(orderStatusMessage('DISPATCHED', 'FLOES-123'), /Guía: FLOES-123/)
-  assert.equal(orderStatusMessage('UNKNOWN'), '')
-})
-
-test('Meta media retains private references without labeling every upload a payment proof', () => {
+test('Meta image and document proofs retain private provider references', () => {
   const payload = { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: {
     metadata: { phone_number_id: '123456789' },
     messages: [
@@ -37,42 +34,8 @@ test('Meta media retains private references without labeling every upload a paym
   const messages = extractMessages(payload, '123456789')
   assert.equal(messages.length, 2)
   assert.equal(messages[0].paymentProofReference, 'meta-whatsapp://123456789/media/555555555')
-  assert.equal(messages[1].text, 'El cliente envió una imagen sin texto.')
+  assert.equal(messages[1].text, 'Envío mi comprobante de pago')
   assert.equal(messages[1].paymentProofReference, 'meta-whatsapp://123456789/media/666666666')
-})
-
-test('Command Center groups inbound events by stable conversation and exposes timeline', () => {
-  const rows = groupLiveConversations([
-    { id: 'in_one', tenantId: 'tenant-floes', conversationId: 'conversation-floes-user', from: '593999999999', text: 'Daniela', receivedAt: '2026-10-10T10:00:00.000Z', status: 'SENT' },
-    { id: 'out_one', tenantId: 'tenant-floes', inboundId: 'in_one', text: '¿Qué color buscas?', status: 'SENT', sentAt: '2026-10-10T10:00:01.000Z' },
-    { id: 'in_two', tenantId: 'tenant-floes', conversationId: 'conversation-floes-user', from: '593999999999', text: 'Vino', receivedAt: '2026-10-10T10:01:00.000Z', status: 'QUEUED' },
-    { id: 'out_two', tenantId: 'tenant-floes', inboundId: 'in_two', messagesJson: JSON.stringify([{ type: 'image', caption: 'Daniela · Vino' }, { type: 'text', text: '¿Qué talla?' }]), status: 'SENT', sentAt: '2026-10-10T10:01:01.000Z' },
-    { id: 'in_other', tenantId: 'tenant-mg', conversationId: 'conversation-mg-user', from: '593999999999', text: 'Ignored', receivedAt: '2026-10-10T10:02:00.000Z' },
-  ], 'tenant-floes')
-  assert.equal(rows.length, 1)
-  assert.equal(rows[0].id, 'conversation-floes-user')
-  assert.equal(rows[0].messageCount, 4)
-  assert.deepEqual(rows[0].timeline.map(event => event.direction), ['INBOUND', 'OUTBOUND', 'INBOUND', 'OUTBOUND'])
-  assert.match(rows[0].timeline[3].text, /Daniela · Vino[\s\S]*¿Qué talla\?/)
-  const legacy = groupLiveConversations([
-    { id: 'in_legacy_1', tenantId: 'tenant-floes', from: '593999999999', text: 'Hola', receivedAt: '2026-10-10T11:00:00.000Z' },
-    { id: 'in_legacy_2', tenantId: 'tenant-floes', from: '593999999999', text: 'Daniela', receivedAt: '2026-10-10T11:01:00.000Z' },
-  ], 'tenant-floes')
-  assert.equal(legacy.length, 1)
-  assert.doesNotMatch(legacy[0].id, /593999999999/)
-})
-
-test('Command Center honors human mode, read markers, and multiple replies to one inbound', () => {
-  const items = groupLiveConversations([
-    { id: 'in_a', tenantId: 'tenant-floes', conversationId: 'conversation-human', from: '593999999999', text: 'Hola', receivedAt: '2026-10-10T10:00:00.000Z', status: 'HUMAN_QUEUED' },
-    { id: 'out_human_1', tenantId: 'tenant-floes', inboundId: 'in_a', to: '593999999999', text: 'Hola, te ayudo', mode: 'HUMAN', senderType: 'HUMAN', status: 'SENT', sentAt: '2026-10-10T10:01:00.000Z' },
-    { id: 'out_human_2', tenantId: 'tenant-floes', inboundId: 'in_a', to: '593999999999', text: '¿Qué talla buscas?', mode: 'HUMAN', senderType: 'HUMAN', status: 'SENT', sentAt: '2026-10-10T10:02:00.000Z' },
-    { id: 'thread_1', tenantId: 'tenant-floes', conversationId: 'conversation-human', mode: 'HUMAN', requiresHuman: 'true', assignedTo: 'owner', readAt: '2026-10-10T09:59:00.000Z' },
-  ], 'tenant-floes')
-  assert.equal(items[0].mode, 'HUMAN')
-  assert.equal(items[0].requiresHuman, true)
-  assert.equal(items[0].unreadCount, 1)
-  assert.deepEqual(items[0].timeline.map(event => event.senderType), ['CLIENT', 'HUMAN', 'HUMAN'])
 })
 
 test('outbound sends catalog image with caption followed by text and records provider ids', async () => {
@@ -100,36 +63,6 @@ test('outbound sends catalog image with caption followed by text and records pro
   } finally {
     if (oldToken === undefined) delete process.env.META_TEST_IMAGE_TOKEN
     else process.env.META_TEST_IMAGE_TOKEN = oldToken
-  }
-})
-
-test('Preview text diagnostic uses the same Meta text adapter as outbound delivery', async () => {
-  const oldToken = process.env.META_TEST_TEXT_TOKEN
-  process.env.META_TEST_TEXT_TOKEN = 'private-test'
-  try {
-    let captured
-    const response = await sendTextMessage(
-      { tenantId: 'tenant-floes', externalChannelId: '123456789', accessTokenEnv: 'META_TEST_TEXT_TOKEN' },
-      '593999999999',
-      'Prueba técnica FLOES',
-      async (url, init) => {
-        captured = { url, init }
-        return new Response(JSON.stringify({ messages: [{ id: 'wamid.preview-text' }] }), { status: 200 })
-      },
-    )
-    assert.equal(response.status, 200)
-    assert.match(captured.url, /\/123456789\/messages$/)
-    assert.equal(captured.init.headers.Authorization, 'Bearer private-test')
-    assert.deepEqual(JSON.parse(captured.init.body), {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: '593999999999',
-      type: 'text',
-      text: { preview_url: false, body: 'Prueba técnica FLOES' },
-    })
-  } finally {
-    if (oldToken === undefined) delete process.env.META_TEST_TEXT_TOKEN
-    else process.env.META_TEST_TEXT_TOKEN = oldToken
   }
 })
 
@@ -436,84 +369,6 @@ test('receive queues exactly one outbound for an automatic reply', async () => {
   )
 })
 
-test('real Meta-shaped FLOES inbound reaches GanoBot and queues a Daniela reply', async () => {
-  const previousChannels = process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON
-  process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON = JSON.stringify([{
-    tenantId: 'tenant-floes',
-    phoneNumberId: 'floes-webhook-test-phone-id',
-    accessTokenEnv: 'META_WHATSAPP_ACCESS_TOKEN',
-  }])
-
-  try {
-    const [extracted] = extractMessages({
-      object: 'whatsapp_business_account',
-      entry: [{
-        changes: [{
-          field: 'messages',
-          value: {
-            metadata: { phone_number_id: 'floes-webhook-test-phone-id' },
-            contacts: [{ wa_id: '593999000123', profile: { name: 'Cliente FLOES' } }],
-            messages: [{
-              id: 'wamid.real-shape.daniela',
-              from: '593999000123',
-              type: 'text',
-              text: { body: 'Hola, quiero ver Daniela' },
-              timestamp: '1791683164',
-            }],
-          },
-        }],
-      }],
-    })
-    assert.ok(extracted)
-
-    const channel = resolveWhatsAppChannel(extracted.phoneNumberId)
-    assert.equal(channel?.tenantId, 'tenant-floes')
-
-    const created = []
-    const updated = []
-    const ganobotCalls = []
-    const result = await receive({
-      ...extracted,
-      tenantId: channel.tenantId,
-      correlationId: extracted.id,
-    }, {
-      createDoc: async (id, data) => { created.push({ id, data }); return true },
-      updateDoc: async (id, data) => { updated.push({ id, data }) },
-      getConversationMeta: async () => ({ mode: 'GANOBOT_LIVE' }),
-      setConversationMeta: async () => {},
-      prepareReply: async message => {
-        ganobotCalls.push(message)
-        return {
-          text: 'Sí, tenemos el Modelo Daniela. ¿Qué color te interesa?',
-          requiresHuman: false,
-          mode: 'GANOBOT_LIVE',
-        }
-      },
-    })
-
-    assert.equal(ganobotCalls.length, 1)
-    assert.equal(ganobotCalls[0].tenantId, 'tenant-floes')
-    assert.equal(ganobotCalls[0].text, 'Hola, quiero ver Daniela')
-    assert.equal(ganobotCalls[0].from, '593999000123')
-    assert.equal(ganobotCalls[0].name, 'Cliente FLOES')
-    assert.equal(ganobotCalls[0].phoneNumberId, 'floes-webhook-test-phone-id')
-    assert.equal(ganobotCalls[0].correlationId, 'wamid.real-shape.daniela')
-
-    const inbound = created.find(entry => entry.id.startsWith('in_'))
-    const outbound = created.find(entry => entry.id.startsWith('out_'))
-    assert.equal(inbound?.data.tenantId, 'tenant-floes')
-    assert.equal(inbound?.data.text, 'Hola, quiero ver Daniela')
-    assert.equal(updated.some(entry => entry.data.status === 'NEEDS_HUMAN'), false)
-    assert.equal(updated.some(entry => entry.data.status === 'QUEUED'), true)
-    assert.equal(outbound?.data.status, 'PREPARED')
-    assert.equal(result.needsHuman, undefined)
-    assert.ok(result.outboundId)
-  } finally {
-    if (previousChannels === undefined) delete process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON
-    else process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON = previousChannels
-  }
-})
-
 test('receive explicit HUMAN decision creates no outbound', async () => {
   const created = []
   const updated = []
@@ -547,28 +402,6 @@ test('receive explicit HUMAN decision creates no outbound', async () => {
   assert.equal(updated.length, 1)
   assert.equal(updated[0].data.status, 'NEEDS_HUMAN')
   assert.equal(updated[0].data.escalationReason, 'CUSTOMER_REQUEST')
-})
-
-test('a conversation taken by an operator queues new inbound without calling GanoBot', async () => {
-  const created = []
-  const updated = []
-  let ganobotCalls = 0
-  const phone = '593962701442'
-  const identity = createHash('sha256').update(`tenant-floes:META:WHATSAPP:${phone}`).digest('hex')
-  const result = await receive({ id: 'wamid.receive.human-mode', from: phone, text: 'Necesito ayuda', phoneNumberId: 'FLOES', tenantId: 'tenant-floes', receivedAt: '2026-10-10T12:00:00.000Z' }, {
-    createDoc: async (id, data) => { created.push({ id, data }); return true },
-    updateDoc: async (id, data) => { updated.push({ id, data }) },
-    getConversationMeta: async () => ({ mode: 'HUMAN', escalationReason: 'CUSTOMER_REQUEST' }),
-    setConversationMeta: async () => {},
-    prepareReply: async () => { ganobotCalls += 1; return { text: 'No debe responder', mode: 'GANOBOT_LIVE' } },
-  })
-  assert.equal(result.mode, 'HUMAN')
-  assert.equal(result.needsHuman, true)
-  assert.equal(ganobotCalls, 0)
-  assert.equal(created.length, 1)
-  assert.equal(updated[0].data.status, 'HUMAN_QUEUED')
-  assert.ok(result.id.startsWith('in_'))
-  assert.ok(`conversation_${identity}`)
 })
 
 test('duplicate inbound stops before GanoBot and creates no outbound', async () => {

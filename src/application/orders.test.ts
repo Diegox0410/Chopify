@@ -143,9 +143,8 @@ describe('H3 application order creation and commercial snapshots', () => {
 
   it('does not create a reservation for MADE_TO_ORDER', async () => {
     const app = setup()
-    const product = await app.orderRepositories.commerce.getProduct('tenant-floes', 'floes-scrub-maria-jose')
-    if (!product) throw new Error('FLOES fixture missing')
-    await app.orderRepositories.commerce.upsertProducts('tenant-floes', [{ ...product, pricingStatus: 'READY', salePriceCents: 32_000 }])
+    const product = { id: 'test-floes-made-to-order', tenantId: 'tenant-floes', sku: 'TEST-FLOES-MTO', slug: 'test-floes-made-to-order', name: 'Producto MTO de prueba', description: '', commercialSummary: '', category: '', status: 'ACTIVE' as const, visibility: 'VISIBLE' as const, fulfillmentMode: 'MADE_TO_ORDER' as const, pricingStatus: 'READY' as const, costCents: null, percentage: null, percentageType: null, salePriceCents: 32_000, currency: 'COP' as const, images: [], variants: [] }
+    await app.orderRepositories.commerce.upsertProducts('tenant-floes', [product])
     const customer = await app.commercial.createCustomer({ tenantId: 'tenant-floes', name: 'Cliente FLOES H3' })
     const opportunity = await app.commercial.createOpportunity({ tenantId: 'tenant-floes', customerId: customer.id, intent: 'PURCHASE_INTENT', estimatedValueCents: 32_000, currency: 'COP' })
     await app.commercial.qualifyOpportunity('tenant-floes', opportunity.id)

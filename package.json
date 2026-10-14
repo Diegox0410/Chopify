@@ -12,9 +12,9 @@
     "pilot:floes:dry-run": "node --import tsx scripts/dry-run-floes-public-catalog.ts",
     "pilot:floes:import-preview": "node --env-file=.env.local --import tsx scripts/import-floes-preview.ts",
     "estimate:usage": "node scripts/estimate-platform-usage.mjs",
-    "test:watch": "vitest",
-    "pilot:sandbox": "node --import tsx scripts/pilot-sandbox.mjs"
-  },
+    "pilot:sandbox": "node --import tsx scripts/pilot-sandbox.mjs",
+    "sync:floes-catalog": "node --import tsx scripts/sync-floes-catalog.ts",
+    "test:watch": "vitest"  },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "exceljs": "^4.4.0",
@@ -46,3 +46,4 @@
     "vitest": "latest"
   }
 }
+

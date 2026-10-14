@@ -1,7 +1,7 @@
 import { isKnownTenant } from '../../src/config/tenantRegistry.js'
 
-const parsedChannels = () => {
-  const raw = process.env.CHOPIFY_WHATSAPP_CHANNELS_JSON
+const parsedChannels = (environment = process.env) => {
+  const raw = environment.CHOPIFY_WHATSAPP_CHANNELS_JSON
   if (!raw) return []
   let value
   try { value = JSON.parse(raw) } catch { throw new Error('Invalid CHOPIFY_WHATSAPP_CHANNELS_JSON') }
@@ -12,18 +12,20 @@ const parsedChannels = () => {
   })
 }
 
-export function whatsappChannels() {
-  const configured = parsedChannels()
+export function whatsappChannels(environment = process.env) {
+  const configured = parsedChannels(environment)
   if (configured.length > 0) return configured
-  const legacyId = process.env.FLOES_WHATSAPP_PHONE_NUMBER_ID?.trim()
+  const legacyId = environment.FLOES_WHATSAPP_PHONE_NUMBER_ID?.trim()
   if (!legacyId) return []
   return [Object.freeze({ tenantId: 'tenant-floes', provider: 'META', channel: 'WHATSAPP', externalChannelId: legacyId, accessTokenEnv: 'META_WHATSAPP_ACCESS_TOKEN', status: 'CONFIGURED' })]
 }
 
-export function resolveWhatsAppChannel(phoneNumberId) {
-  const matches = whatsappChannels().filter(channel => channel.externalChannelId === phoneNumberId)
+export function resolveWhatsAppChannel(phoneNumberId, environment = process.env) {
+  const matches = whatsappChannels(environment).filter(channel => channel.externalChannelId === phoneNumberId)
   if (matches.length > 1) throw new Error('Duplicate WhatsApp external channel configuration')
   return matches[0] ?? null
 }
 
-export function configuredWhatsAppTenants() { return [...new Set(whatsappChannels().map(channel => channel.tenantId))] }
+export function configuredWhatsAppTenants(environment = process.env, { activeOnly = false } = {}) {
+  return [...new Set(whatsappChannels(environment).filter(channel => !activeOnly || channel.status === 'ACTIVE').map(channel => channel.tenantId))]
+}

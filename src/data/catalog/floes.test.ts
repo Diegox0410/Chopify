@@ -1,24 +1,35 @@
 import { describe,expect,it } from 'vitest'
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { MemoryCommerceStateStore,PersistentCommerceRuntime } from '../../application/commerceRuntime.js'
 import { floesCatalog,FLOES_CATEGORIES } from './floes.js'
 
 const request=(operation:Parameters<PersistentCommerceRuntime['execute']>[0]['operation'],input:Record<string,unknown>={})=>({operation,tenantId:'tenant-floes',input,requestId:`test-${operation}`,correlationId:`test-${operation}`,idempotencyKey:`test-${operation}`})
-describe('FLOES real catalog',()=>{
- it('defines four active, visible, made-to-order products with pending pricing',()=>{
-  expect(floesCatalog).toHaveLength(4);expect(new Set(floesCatalog.map((item)=>item.sku)).size).toBe(4)
-  expect(new Set(floesCatalog.map((item)=>item.category))).toEqual(new Set(FLOES_CATEGORIES))
-  for(const product of floesCatalog){expect(product).toMatchObject({tenantId:'tenant-floes',status:'ACTIVE',visibility:'VISIBLE',fulfillmentMode:'MADE_TO_ORDER',pricingStatus:'PENDING',costCents:null,percentage:null,salePriceCents:null});expect(product.name).not.toContain('SAMPLE')}
+describe('FLOES production catalog seed policy',()=>{
+ it('starts empty instead of publishing unverified placeholder products, categories, or variants',()=>{
+  expect(floesCatalog).toEqual([])
+  expect(FLOES_CATEGORIES).toEqual([])
  })
- it('models the five Scrub Esencial color variants with unique SKUs and isolated galleries',()=>{
-  const product=floesCatalog.find((item)=>item.sku==='FLO-SCR-BAS-001');expect(product?.variants.map((item)=>item.color)).toEqual(['Celeste','Vino','Rosa','Azul Marino','Negro']);expect(new Set(product?.variants.map((item)=>item.sku)).size).toBe(5)
-  for(const variant of product?.variants??[]){expect(variant.images).toHaveLength(4);expect(variant.images.every((image)=>image.url.includes(`/scrub-esencial/${variant.color?.toLocaleLowerCase().replace(' ','-')}/`))).toBe(true);expect(variant.images.every((image)=>existsSync(resolve('public',image.url.replace(/^\//,''))))).toBe(true)}
+ it('syncFloesCatalog cannot recreate placeholder products in a new tenant record',async()=>{
+  const store=new MemoryCommerceStateStore();const runtime=new PersistentCommerceRuntime(store)
+  expect(await runtime.execute(request('syncFloesCatalog'))).toEqual([])
+  const record=await store.load('tenant-floes')
+  expect(record?.state.orders.products).toEqual([])
+  expect(await runtime.execute(request('searchProducts',{query:''}))).toEqual([])
  })
- it('keeps each non-color-confirmed model without invented variants and with four images',()=>{for(const product of floesCatalog.filter((item)=>item.sku!=='FLO-SCR-BAS-001')){expect(product.variants).toHaveLength(0);expect(product.images).toHaveLength(4)}})
- it('imports idempotently into persisted tenant state without overwriting later pricing and excludes SAMPLE',async()=>{const store=new MemoryCommerceStateStore();const runtime=new PersistentCommerceRuntime(store);const first=await runtime.execute(request('syncFloesCatalog')) as readonly {sku:string;id:string}[];const current=await runtime.execute(request('listProducts')) as readonly Record<string,unknown>[];const maria=current.find((item)=>item.sku==='FLO-SCR-MJO-001');await runtime.execute(request('updateProduct',{product:{...maria,pricingStatus:'READY',salePriceCents:125_000}}));const second=await runtime.execute(request('syncFloesCatalog')) as readonly {sku:string;salePriceCents:number|null}[];expect(first).toHaveLength(4);expect(second).toHaveLength(4);expect(second.find((item)=>item.sku==='FLO-SCR-MJO-001')?.salePriceCents).toBe(125_000);const restarted=new PersistentCommerceRuntime(store);const results=await restarted.execute(request('searchProducts',{query:''})) as readonly {name:string}[];expect(results).toHaveLength(4);expect(results.every((item)=>!item.name.includes('SAMPLE'))).toBe(true)})
- it('exposes variants, pending pricing and coherent made-to-order availability',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const results=await runtime.execute(request('searchProducts',{query:'Scrub Esencial'})) as readonly {productId:string;price:unknown;pricingStatus:string}[];expect(results[0]).toMatchObject({price:null,pricingStatus:'PENDING'});const details=await runtime.execute(request('getProductDetails',{productId:results[0]?.productId})) as {variants:readonly unknown[]};expect(details.variants).toHaveLength(5);const availability=await runtime.execute(request('checkAvailability',{productId:results[0]?.productId,quantity:1})) as Record<string,unknown>;expect(availability).toMatchObject({available:true,reason:'made_to_order',pricingStatus:'PENDING'});expect(availability).not.toHaveProperty('availableQuantity')})
- it('blocks checkout when price is pending instead of producing a zero total',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const customer=await runtime.execute(request('createOrUpdateCustomer',{name:'Cliente real'})) as {customerId:string};await expect(runtime.execute(request('createOrderDraft',{customerId:customer.customerId,lines:[{productId:'floes-scrub-maria-jose',quantity:1}]}))).rejects.toThrow('pricing is pending')})
- it('keeps the catalog isolated from other tenants',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const results=await runtime.execute({...request('searchProducts',{query:'Scrub Esencial'}),tenantId:'tenant-mg'}) as readonly unknown[];expect(results).toHaveLength(0)})
- it('persists the initial catalog on the first read even before an explicit import',async()=>{const store=new MemoryCommerceStateStore();const first=new PersistentCommerceRuntime(store);await first.execute(request('searchProducts',{query:''}));const record=await store.load('tenant-floes');expect(record?.state.orders.products).toHaveLength(4);const restarted=new PersistentCommerceRuntime(store);expect(await restarted.execute(request('searchProducts',{query:''}))).toHaveLength(4)})
+ it('does not create customer orders from a missing or empty informational catalog',async()=>{
+  const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore())
+  const customer=await runtime.execute(request('createOrUpdateCustomer',{name:'Cliente de prueba'})) as {customerId:string}
+  await expect(runtime.execute(request('createOrderDraft',{customerId:customer.customerId,lines:[{productId:'tenant-floes:model:daniela',quantity:1}]}))).rejects.toThrow()
+ })
+ it('serves an approved information-only listing with its model gallery and blocks availability and checkout',async()=>{
+  const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore())
+  await runtime.execute(request('updateProduct',{product:{id:'tenant-floes:model:daniela',tenantId:'tenant-floes',sku:'TEST-DANIELA-PROPOSAL',slug:'daniela',name:'Modelo Daniela',description:'Blusa médica de inspiración polo, clásica y funcional.',commercialSummary:'Blusa médica de inspiración polo, clásica y funcional.',category:'',status:'ACTIVE',visibility:'VISIBLE',fulfillmentMode:'STOCK',pricingStatus:'PENDING',costCents:null,percentage:null,percentageType:null,salePriceCents:null,currency:'USD',images:[1,2,3].map((n)=>({url:`https://www.floes-ec.com/images/editorial/modelos/daniela-0${n}.webp`,alt:`Modelo Daniela · foto ${n}`})),variants:[]}}))
+  const [product]=await runtime.execute(request('searchProducts',{query:'Daniela'})) as Array<{productId:string;price:null;available:boolean;variants:unknown[];images:Array<{url:string}>}>
+  expect(product).toMatchObject({productId:'tenant-floes:model:daniela',price:null,available:false,variants:[]})
+  expect(product.images).toHaveLength(3)
+  expect(await runtime.execute(request('checkAvailability',{productId:product.productId}))).toMatchObject({available:false,reason:'inventory_not_configured',pricingStatus:'PENDING'})
+  const customer=await runtime.execute(request('createOrUpdateCustomer',{name:'Cliente informativo'})) as {customerId:string}
+  await expect(runtime.execute(request('createOrderDraft',{customerId:customer.customerId,lines:[{productId:product.productId,quantity:1}]}))).rejects.toThrow(/pricing is pending/i)
+ })
+ it('keeps the catalog isolated from other tenants',async()=>{const runtime=new PersistentCommerceRuntime(new MemoryCommerceStateStore());const results=await runtime.execute({...request('searchProducts',{query:''}),tenantId:'tenant-mg'}) as readonly unknown[];expect(results).toHaveLength(0)})
+ it('does not persist state or seed products on an empty catalog read',async()=>{const store=new MemoryCommerceStateStore();const first=new PersistentCommerceRuntime(store);await first.execute(request('searchProducts',{query:''}));expect(await store.load('tenant-floes')).toBeNull();const restarted=new PersistentCommerceRuntime(store);expect(await restarted.execute(request('searchProducts',{query:''}))).toEqual([]);expect(await store.load('tenant-floes')).toBeNull()})
 })

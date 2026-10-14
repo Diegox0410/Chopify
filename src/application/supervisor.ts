@@ -18,9 +18,18 @@ export class SupervisorApplication {
     await this.repositories.conversations.save(input.tenantId,{...conversation,status:'HUMAN_REQUIRED',assignedMode:'AUTOMATION',assignedUserId:undefined,updatedAt:this.clock(),lastActivityAt:this.clock()})
     return escalation
   }
-  async resolve(tenantId:string,escalationId:string){
-    const open=await this.repositories.escalations.listOpen(tenantId);const item=open.find(x=>x.id===escalationId);if(!item)throw new Error('Open escalation not found in tenant')
-    const next={...item,status:'RESOLVED' as const,resolvedAt:this.clock()};await this.repositories.escalations.save(tenantId,next);return next
+  async resolve(tenantId:string,escalationId:string,details?:{actorId:string;resolution:string;idempotencyKey:string}){
+    const open=await this.repositories.escalations.listOpen(tenantId)
+    const item=await this.repositories.escalations.getById?.(tenantId,escalationId)??open.find(x=>x.id===escalationId)
+    if(!item)throw new Error('Open escalation not found in tenant')
+    if(item.status==='RESOLVED'){
+      if(details&&item.resolutionKey===details.idempotencyKey&&item.resolution===details.resolution.trim()&&item.resolvedBy===details.actorId)return item
+      throw new Error('Escalation is already resolved')
+    }
+    const next={...item,status:'RESOLVED' as const,resolvedAt:this.clock(),...(details?{resolvedBy:details.actorId,resolution:details.resolution.trim(),resolutionKey:details.idempotencyKey}:{})}
+    await this.repositories.escalations.save(tenantId,next)
+    if(details&&item.customerId)await this.repositories.activities.append(tenantId,{id:this.id(),tenantId,customerId:item.customerId,conversationId:item.conversationId,orderId:item.orderId,type:'NOTE_ADDED',actorType:'TENANT_USER',actorId:details.actorId,occurredAt:next.resolvedAt,summary:`Incidencia resuelta: ${details.resolution.trim()}`})
+    return next
   }
   async snapshot(tenantId:string):Promise<SupervisorSnapshot>{
     const [conversations,escalations,orders,proofs]=await Promise.all([this.repositories.conversations.listByTenant(tenantId),this.repositories.escalations.listOpen(tenantId),this.repositories.orders.listByTenant(tenantId),this.repositories.proofs.listByTenant(tenantId)])

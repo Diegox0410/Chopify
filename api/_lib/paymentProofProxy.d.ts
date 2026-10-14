@@ -5,7 +5,7 @@ interface ProofRequest { method?: string; query?: Record<string, unknown>; heade
 interface ProofResponse { statusCode: number; setHeader(name: string, value: string): void; end(body?: string | Uint8Array): void }
 interface ProofRuntime { execute(request: { operation: string; tenantId: string; input: Record<string, unknown> }): Promise<unknown> }
 interface ProofDependencies {
-  authorize?: (request: ProofRequest) => Promise<{ ok: boolean; status: number; error?: string }>
+  authorize?: (request: ProofRequest) => Promise<{ ok: boolean; status: number; error?: string; tenantId?: string }>
   runtimeClient?: ProofRuntime
   env?: NodeJS.ProcessEnv
   fetcher?: typeof fetch

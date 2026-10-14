@@ -4,7 +4,7 @@ export type EscalationPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 export type EscalationReason = 'CUSTOMER_REQUEST' | 'COMPLAINT' | 'PAYMENT_ISSUE' | 'PRICING_EXCEPTION' | 'STOCK_CONFLICT' | 'RETURN_REQUEST' | 'DELIVERY_ISSUE' | 'UNKNOWN_PRODUCT' | 'SYSTEM_ERROR' | 'OTHER'
 export type EscalationStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED'
 export interface HumanEscalation extends TenantScoped {
-  id: EntityId; customerId?: EntityId; conversationId: EntityId; orderId?: EntityId; reason: EscalationReason; priority: EscalationPriority; status: EscalationStatus; contextSummary?: string; assignedTo?: EntityId; createdAt: ISODateTime; resolvedAt?: ISODateTime
+  id: EntityId; customerId?: EntityId; conversationId: EntityId; orderId?: EntityId; reason: EscalationReason; priority: EscalationPriority; status: EscalationStatus; contextSummary?: string; assignedTo?: EntityId; createdAt: ISODateTime; resolvedAt?: ISODateTime; resolvedBy?: EntityId; resolution?: string; resolutionKey?: string
 }
 export function resolveEscalation(item: HumanEscalation, at: ISODateTime): HumanEscalation { return { ...item, status: 'RESOLVED', resolvedAt: at } }
 

@@ -7,8 +7,10 @@ import { cleanImages, moveImage, productSlug } from './productEditor'
 import { CatalogImportPanel } from './CatalogImportPanel'
 import { CommercialMetadataEditor, metadataFromProduct, metadataToProduct } from './CommercialMetadataEditor'
 import { CatalogImageUpload } from './CatalogImageUpload'
+import { catalogStockPresentation } from './catalogStockPresentation'
 
 const stores = tenantIds.map(id => [id, tenantDefinitions[id].name] as const)
+const floesHistoricalProductNames = new Set(['scrubesencial', 'scrubmariajose', 'scrubmariabelen', 'chaquetamariajose'])
 
 type VariantPriceMode = 'INHERIT' | 'PENDING' | 'VALUE'
 
@@ -134,7 +136,7 @@ const productToDraft = (product: CommerceProduct): ProductDraft => ({
   category: product.category,
   description: product.description,
   commercialSummary: product.commercialSummary,
-  currency: product.currency,
+  currency: product.currency ?? '',
   price: product.salePriceCents === null ? '' : String(product.salePriceCents / 100),
   cost: product.costCents === null ? '' : String(product.costCents / 100),
   percentage: product.percentage === null ? '' : String(product.percentage),
@@ -208,7 +210,7 @@ export function CatalogAdminPage() {
   const [metadata,setMetadata]=useState(()=>metadataFromProduct())
   const [editingProduct, setEditingProduct] = useState<CommerceProduct | null>(null)
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'ALL' | CommerceProduct['status']>('ALL')
+  const [statusFilter, setStatusFilter] = useState<'OPERATIONAL' | 'HISTORICAL' | 'ALL' | CommerceProduct['status']>('OPERATIONAL')
   const [visibilityFilter, setVisibilityFilter] = useState<'ALL' | CommerceProduct['visibility']>('ALL')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -237,12 +239,18 @@ export function CatalogAdminPage() {
         !normalized ||
         [product.name, product.sku, product.category, product.slug]
           .some(value => value.toLowerCase().includes(normalized))
-      const matchesStatus = statusFilter === 'ALL' || product.status === statusFilter
+      const floesHistoryKey = product.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const isFloesHistorical = tenant === 'tenant-floes' && floesHistoricalProductNames.has(floesHistoryKey)
+      const isHistorical = product.status === 'ARCHIVED' || isFloesHistorical
+      const matchesStatus = statusFilter === 'ALL' ? true
+        : statusFilter === 'HISTORICAL' ? isHistorical
+          : statusFilter === 'OPERATIONAL' ? !isHistorical
+            : product.status === statusFilter && !isFloesHistorical
       const matchesVisibility =
         visibilityFilter === 'ALL' || product.visibility === visibilityFilter
       return matchesQuery && matchesStatus && matchesVisibility
     })
-  }, [products, query, statusFilter, visibilityFilter])
+  }, [products, query, statusFilter, visibilityFilter, tenant])
 
   const resetEditor = () => {
     setEditingProduct(null)
@@ -819,7 +827,7 @@ export function CatalogAdminPage() {
                     </label>
 
                     <label className="field">
-                      <span>Stock</span>
+                      <span>Cantidad agrupada por color</span>
                       <input
                         inputMode="numeric"
                         value={variant.stock}
@@ -828,6 +836,7 @@ export function CatalogAdminPage() {
                         }
                         placeholder="Vacío = desconocido"
                       />
+                      <small>Este total no confirma unidades disponibles por talla.</small>
                     </label>
 
                     <label className="field">
@@ -969,7 +978,9 @@ export function CatalogAdminPage() {
                 setStatusFilter(event.target.value as typeof statusFilter)
               }
             >
-              <option value="ALL">Todos</option>
+              <option value="OPERATIONAL">Operativos (activos y borradores)</option>
+              <option value="HISTORICAL">Históricos / archivados</option>
+              <option value="ALL">Todos, incluidos históricos</option>
               <option value="ACTIVE">Activos</option>
               <option value="DRAFT">Borradores</option>
               <option value="ARCHIVED">Archivados</option>
@@ -1006,14 +1017,7 @@ export function CatalogAdminPage() {
           <div className="catalog-product-grid">
             {filteredProducts.map(product => {
               const cover = product.images[0]?.url ?? product.variants.flatMap(v => v.images)[0]?.url
-              const knownStock = product.variants
-                .map(variant => variant.stock)
-                .filter((stock): stock is number => stock !== null)
-              const totalStock =
-                product.variants.length > 0 &&
-                knownStock.length === product.variants.length
-                  ? knownStock.reduce((sum, stock) => sum + stock, 0)
-                  : null
+              const stockPresentation = catalogStockPresentation(product)
 
               return (
                 <article className="catalog-product panel" key={product.id}>
@@ -1042,7 +1046,7 @@ export function CatalogAdminPage() {
                         <strong className={product.salePriceCents === null ? 'pending-price' : ''}>
                           {product.salePriceCents === null
                             ? 'Pendiente'
-                            : money(product.salePriceCents, product.currency)}
+                            : product.currency ? money(product.salePriceCents, product.currency) : 'Moneda pendiente'}
                         </strong>
                       </div>
                       <div>
@@ -1050,22 +1054,17 @@ export function CatalogAdminPage() {
                         <strong>
                           {product.costCents === null
                             ? 'No disponible'
-                            : money(product.costCents, product.currency)}
+                            : product.currency ? money(product.costCents, product.currency) : 'Moneda pendiente'}
                         </strong>
                       </div>
                     </div>
 
                     <div className="catalog-meta-grid">
-                      <span>{product.currency}</span>
+                      <span>{product.currency ?? 'Moneda pendiente'}</span>
                       <span>{product.fulfillmentMode}</span>
                       <span>{product.variants.length} variantes</span>
-                      <span>
-                        Stock: {product.variants.length === 0
-                          ? 'No aplica'
-                          : totalStock === null
-                            ? 'Desconocido'
-                            : totalStock}
-                      </span>
+                      <span><strong>{stockPresentation.aggregateLabel}:</strong> {stockPresentation.aggregateValue}</span>
+                      <span><strong>Disponibilidad por talla:</strong> {stockPresentation.sizeAvailabilityLabel}</span>
                     </div>
 
                     <button

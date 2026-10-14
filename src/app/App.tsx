@@ -4,8 +4,11 @@ import { navigation } from './navigation'
 import { CatalogAdminPage } from '../features/catalog/CatalogAdminPage'
 import { StorefrontPage } from '../features/catalog/StorefrontPage'
 import { ConversationsPage } from '../features/conversations/ConversationsPage'
+import { ConversationDetailPage } from '../features/conversations/ConversationDetailPage'
+import { CustomersPage } from '../features/customers/CustomersPage'
+import { CustomerDetailPage } from '../features/customers/CustomerDetailPage'
 import { OperationalEmptyPage } from '../features/shell/OperationalEmptyPage'
-import { IntegrationsPage, RealBusinessesPage, RealCustomersPage, RealDashboardPage, RealExceptionsPage, RealFulfillmentPage, RealOpportunitiesPage, RealOrdersPage, RealPaymentReviewPage } from '../features/platform/AdminCenters'
+import { IntegrationsPage, RealBusinessesPage, RealDashboardPage, RealExceptionsPage, RealFulfillmentPage, RealOpportunitiesPage, RealOrdersPage, RealPaymentReviewPage } from '../features/platform/AdminCenters'
 import { OwnerPanelPage } from '../features/owner/OwnerPanelPage'
 import { LoginPage } from '../auth/LoginPage'
 import { RequireAuth } from '../auth/RequireAuth'
@@ -46,9 +49,11 @@ export function App(){
         <Route path="dashboard" element={<RealDashboardPage/>}/>
         <Route path="products" element={<CatalogAdminPage/>}/>
         <Route path="conversations" element={<ConversationsPage/>}/>
+        <Route path="conversations/:tenantId/:conversationId" element={<ConversationDetailPage/>}/>
         <Route path="businesses" element={<RealBusinessesPage/>}/>
         <Route path="orders" element={<RealOrdersPage/>}/>
-        <Route path="customers" element={<RealCustomersPage/>}/>
+        <Route path="customers" element={<CustomersPage/>}/>
+        <Route path="customers/:tenantId/:customerId" element={<CustomerDetailPage/>}/>
         <Route path="opportunities" element={<RealOpportunitiesPage/>}/>
         <Route path="payments/review" element={<RealPaymentReviewPage/>}/>
         <Route path="fulfillment" element={<RealFulfillmentPage/>}/>

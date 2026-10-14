@@ -16,6 +16,6 @@ export interface InventoryReservationRepository { listByTenant(tenantId: string,
 export interface IdempotencyRepository { get(tenantId: string, operation: IdempotentOperation, key: string): Promise<IdempotencyRecord | null>; save(tenantId: string, record: IdempotencyRecord): Promise<void> }
 export interface AgreementRepository { getEffective(tenantId: string, at: string): Promise<CommercialAgreement | null> }
 export interface ManagedSaleRepository { list(tenantId: string): Promise<readonly ManagedSale[]>; save(sale: ManagedSale): Promise<void> }
-export interface EscalationRepository { listOpen(tenantId: string): Promise<readonly HumanEscalation[]>; save(tenantId: string, escalation: HumanEscalation): Promise<void> }
+export interface EscalationRepository { listOpen(tenantId: string): Promise<readonly HumanEscalation[]>; getById?(tenantId:string,id:string):Promise<HumanEscalation|null>; save(tenantId: string, escalation: HumanEscalation): Promise<void> }
 export interface SettlementRepository { list(tenantId: string): Promise<readonly Settlement[]>; save(settlement: Settlement): Promise<void> }
 export interface AuditRepository { listByTenant(tenantId: string, filters?: { entityType?: string; entityId?: string }): Promise<readonly AuditEvent[]>; append(tenantId: string, event: AuditEvent): Promise<void> }

@@ -33,7 +33,7 @@ export class SampleBusinessCommerceAdapter implements BusinessCommerceAdapter, I
   constructor(private db: SampleOrderDatabase) {}
   async searchProducts(tenantId: string, query: string) { const normalized = normalizeCatalogKey(query).split('-').filter(Boolean); return this.db.products.filter((item) => { const haystack=normalizeCatalogKey([item.name,item.description,item.commercialSummary,item.category,item.sku,item.material,...(item.characteristics??[]),item.ganoBotNotes,...item.variants.map((v) => `${v.color ?? ''} ${v.sku}`)].join(' '));return item.tenantId === tenantId && isCommerciallyVisible(item) && normalized.every(word=>haystack.includes(word)) }).map((item) => structuredClone(item)) }
   async getProduct(tenantId: string, productId: string) { const item = this.db.products.find((entry) => entry.tenantId === tenantId && entry.id === productId && isCommerciallyVisible(entry)); return item ? structuredClone(item) : null }
-  async getPrice(tenantId: string, productId: string, variantId?: string) { const item = await this.getProduct(tenantId, productId); if (!item) return null; const variant = variantId ? item.variants.find((entry) => entry.id === variantId && entry.status==='ACTIVE' && entry.visibility==='VISIBLE') : undefined; if(variantId&&!variant)return null; const priceCents = effectiveSalePrice(item,variant); return priceCents === null ? null : { priceCents, currency: item.currency } }
+   async getPrice(tenantId: string, productId: string, variantId?: string) { const item = await this.getProduct(tenantId, productId); if (!item) return null; const variant = variantId ? item.variants.find((entry) => entry.id === variantId && entry.status==='ACTIVE' && entry.visibility==='VISIBLE') : undefined; if(variantId&&!variant)return null; const priceCents = effectiveSalePrice(item,variant); return priceCents === null || !item.currency ? null : { priceCents, currency: item.currency } }
   async listProducts(tenantId: string) {
     return this.db.products.filter(item => item.tenantId === tenantId).map(item => ({
       ...structuredClone(item),
@@ -49,6 +49,19 @@ export class SampleBusinessCommerceAdapter implements BusinessCommerceAdapter, I
         return { ...structuredClone(variant), stock }
       }),
     }))
+  }
+  async updateProductInformation(tenantId: string, products: readonly CommerceProduct[]) {
+    const next=structuredClone(this.db.products)
+    for (const product of products) {
+      if (product.tenantId !== tenantId) throw new Error('Cross-tenant catalog mutation rejected')
+      validateCommerceProduct(product)
+      const index=next.findIndex(item=>item.tenantId===tenantId&&item.id===product.id)
+      if(index<0)throw new Error('Informational updates require an existing product')
+      const existing=next[index]
+      next[index]={...existing,name:product.name,description:product.description,commercialSummary:product.commercialSummary,images:structuredClone(product.images)}
+    }
+    this.db.products.splice(0,this.db.products.length,...next)
+    return this.listProducts(tenantId)
   }
   async upsertProducts(tenantId: string, products: readonly CommerceProduct[]) {
     const next=structuredClone(this.db.products), inventory=structuredClone(this.db.inventory)
@@ -154,6 +167,9 @@ export class SampleBusinessCommerceAdapter implements BusinessCommerceAdapter, I
       if(sized)return Math.max(0,sized.onHand-sized.reserved)
       if(configured&&Object.prototype.hasOwnProperty.call(configured,size))return null
       if(positions.some(item=>item.size))return null
+      // A FLOES color aggregate is never evidence of physical availability for a size.
+      // Preserve legacy behavior for other tenants until their own inventory is reconciled.
+      if(tenantId==='tenant-floes')return null
       const legacy=positions.find(item=>!item.size)
       return legacy?Math.max(0,legacy.onHand-legacy.reserved):null
     }

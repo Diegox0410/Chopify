@@ -1,0 +1,21 @@
+{
+  "baseSha": "73b450bb30b7bb445c3f331273799110d0f5f34c",
+  "candidate": "release-minimal/chopify-prod-base",
+  "generatedAtUtc": "2026-10-13T22:56:32.2093992Z",
+  "scope": "channel inbound/outbound gateway implementation, tests, and contract docs; manifest excludes itself",
+  "files": [
+    { "path": ".env.live.example", "bytes": 2065, "sha256": "6c29c52950e26494418b30c56bdcad6099a5b652d1fb80c740d772e931b9ca83" },
+    { "path": "api/_lib/channelInboundAuth.d.ts", "bytes": 246, "sha256": "60680aed9f9e03ab6c04d2c204677f3a704ef56730de35713832f655e0e384cd" },
+    { "path": "api/_lib/channelInboundAuth.js", "bytes": 1208, "sha256": "3bd300f536880df3a6bd401c29d90550407d0cab8fac83ec899a8359df1f659a" },
+    { "path": "api/_lib/channelInboundHandler.js", "bytes": 6794, "sha256": "f129128c028317fe5153c964563743f2686d19db44008c20437f8923a13c2b64" },
+    { "path": "api/_lib/channelOutboundHandler.js", "bytes": 4476, "sha256": "51f8a35a88a01137efd3a89b473356e706caf19d56f9637443490e7465e69ff2" },
+    { "path": "api/_lib/conversationReadModel.js", "bytes": 14263, "sha256": "1f67bd2d8919a9d733437c718781d58c652fa8cdda17326dc1ac6d15385aa3c9" },
+    { "path": "api/_lib/conversationStore.d.ts", "bytes": 2526, "sha256": "9bd7570788175964483e97d86a26c1fcb1be0011dc15b9ea37c9cd5bc476db44" },
+    { "path": "api/_lib/conversationStore.js", "bytes": 16182, "sha256": "8d42f5e4a0e5a33800db80a29dce09219b7a6c3aafa8047f46f92dc2de2033c6" },
+    { "path": "api/channel-inbound.ts", "bytes": 832, "sha256": "cb41d24042d9a7991c0833ff5541f3fcf1dfd532dc3d7d50241aaba3407f9fac" },
+    { "path": "api/channel-outbound.ts", "bytes": 127, "sha256": "daff562ebaa04a31a3c48aee75ef8d046f1187e2158aa249ac5bb2aed5219ff2" },
+    { "path": "docs/H6-OMNICHANNEL-GATEWAY.md", "bytes": 3256, "sha256": "14803cd74aac1c6e282e10e9583d6175b9584efd734897ed0cb2051e0f272e72" },
+    { "path": "src/domain/customer.ts", "bytes": 743, "sha256": "10c01d800084e7574fcd376f7f5e93daf4c45fc3851b6e1a810963f2a616e031" },
+    { "path": "tests/conversation-crm.test.mjs", "bytes": 27823, "sha256": "d566c811941d32ca1c2f46666aef23c0b2b17d834fdc3a6ec8e909c63bc4fb42" }
+  ]
+}

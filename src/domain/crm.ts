@@ -33,6 +33,7 @@ export interface CommercialNote extends TenantScoped {
   customerId: EntityId
   opportunityId?: EntityId
   authorId: EntityId
+  idempotencyKey?: string
   body: string
   createdAt: ISODateTime
 }

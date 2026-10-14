@@ -1,5 +1,6 @@
 import { authorizePlatformOwner } from './firebaseAuth.js'
 import { whatsappChannels } from './channelRegistry.js'
+import { authorizeOwnerService } from './ownerServiceAuth.js'
 
 const json = (res, status, body) => {
   res.statusCode = status
@@ -13,6 +14,23 @@ export function parseMetaProofReference(reference) {
   if (typeof reference !== 'string') return null
   const match = reference.match(/^meta-whatsapp:\/\/(\d{5,30})\/media\/(\d{5,100})$/)
   return match ? { phoneNumberId: match[1], mediaId: match[2] } : null
+}
+
+async function limitedBytes(response, maxBytes) {
+  const reader = response.body?.getReader()
+  if (!reader) return Buffer.alloc(0)
+  const chunks = []
+  let size = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > maxBytes) { await reader.cancel(); return null }
+      chunks.push(Buffer.from(value))
+    }
+    return Buffer.concat(chunks, size)
+  } finally { reader.releaseLock() }
 }
 
 export async function readPrivateProof({ tenantId, proofId, runtimeClient, env = process.env, fetcher = fetch, channels = whatsappChannels }) {
@@ -43,18 +61,20 @@ export async function readPrivateProof({ tenantId, proofId, runtimeClient, env =
   const maxBytes = 10 * 1024 * 1024
   const declaredSize = Number(file.headers.get('content-length') || metadata?.file_size || 0)
   if (!permittedTypes.has(contentType) || declaredSize > maxBytes) return { status: 415 }
-  const bytes = Buffer.from(await file.arrayBuffer())
-  if (!bytes.length || bytes.length > maxBytes) return { status: 415 }
+  const bytes = await limitedBytes(file, maxBytes)
+  if (!bytes || !bytes.length) return { status: 415 }
   return { status: 200, contentType, bytes }
 }
 
-export function createPaymentProofHandler({ authorize = authorizePlatformOwner, runtimeClient, env = process.env, fetcher = fetch, channels = whatsappChannels } = {}) {
+export function createPaymentProofHandler({ authorize, runtimeClient, env = process.env, fetcher = fetch, channels = whatsappChannels } = {}) {
+  const authorizeRequest = authorize || (async request => authorizeOwnerService(request, env) ?? authorizePlatformOwner(request))
   return async function paymentProofHandler(req, res) {
     if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed' })
-    const auth = await authorize(req)
+    const auth = await authorizeRequest(req)
     if (!auth.ok) return json(res, auth.status, { error: auth.error })
     const tenantId = typeof req.query?.tenantId === 'string' ? req.query.tenantId : ''
     const proofId = typeof req.query?.proofId === 'string' ? req.query.proofId : ''
+    if (auth.tenantId && auth.tenantId !== tenantId) return json(res, 403, { error: 'Tenant not allowed' })
     try {
       if (!runtimeClient) throw new Error('Private proof runtime is unavailable')
       const result = await readPrivateProof({ tenantId, proofId, runtimeClient, env, fetcher, channels })

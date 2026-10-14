@@ -12,7 +12,7 @@ export interface CommerceProductVariant { id: EntityId; sku: string; color: stri
 export interface CommerceProduct extends TenantScoped {
   id: EntityId; sku: string; slug: string; name: string; description: string; commercialSummary: string; category: string
   status: ProductStatus; visibility: ProductVisibility; fulfillmentMode: FulfillmentMode; pricingStatus: PricingStatus
-  costCents: number | null; percentage: number | null; percentageType: PercentageType | null; salePriceCents: number | null; currency: CurrencyCode
+  costCents: number | null; percentage: number | null; percentageType: PercentageType | null; salePriceCents: number | null; currency: CurrencyCode | null
   images: readonly ProductImage[]; variants: readonly CommerceProductVariant[]; externalProductId?: string
   collection?: string; gender?: string; characteristics?: readonly string[]; material?: string; ganoBotNotes?: string; internalNotes?: string
   sizeGuide?: FlatSizeGuide; sizeRecommendation?: string; preparationTime?: string; deliveryType?: string
@@ -23,7 +23,8 @@ export function effectiveSalePrice(product: CommerceProduct, variant?: CommerceP
 export function isCommerciallyVisible(product: CommerceProduct): boolean { return product.status === 'ACTIVE' && product.visibility === 'VISIBLE' }
 export function validateCommerceProduct(product: CommerceProduct): void {
   if (!product.id.trim() || !product.sku.trim() || !product.slug.trim() || !product.name.trim()) throw new Error('Product identity is required')
-  if (!/^[A-Z]{3}$/.test(product.currency)) throw new Error('Product currency must be an explicit ISO code')
+  if (product.currency !== null && !/^[A-Z]{3}$/.test(product.currency)) throw new Error('Product currency must be an explicit ISO code')
+  if (product.currency === null && (product.pricingStatus !== 'PENDING' || product.salePriceCents !== null || product.variants.some(variant => variant.salePriceCents != null || variant.promotionalPriceCents != null))) throw new Error('Currency may be pending only while all product and variant prices are pending')
   if (product.pricingStatus === 'READY' && (product.salePriceCents === null || product.salePriceCents <= 0)) throw new Error('READY pricing requires a positive sale price')
   if (product.pricingStatus === 'PENDING' && product.salePriceCents !== null) throw new Error('PENDING pricing cannot expose a sale price')
   for (const cents of [product.costCents, product.salePriceCents]) if (cents !== null && (!Number.isInteger(cents) || cents < 0)) throw new Error('Money values must be non-negative integer cents or null')

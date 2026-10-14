@@ -11,6 +11,28 @@ const text = (value: unknown) => value == null ? '' : String(value).trim()
 const skuKey = (value: string) => value.trim().toUpperCase()
 const fields = (row: CatalogRow) => Object.fromEntries(Object.entries(row).map(([key, value]) => [normalizeCatalogKey(key).replace(/-/g, '_'), value]))
 const nonempty = (value: unknown) => text(value) !== ''
+function resolveImages(row: CatalogRow, model: string, name: string, color: string, normalizedImages: Array<{ path: string; url: string }>, result: CatalogPreview, rowNumber: number, issue: (row: number, field: string, message: string, severity?: CatalogIssue['severity']) => void): ProductImage[] {
+  const images: ProductImage[] = []
+  const references = Array.from({ length: 6 }, (_, index) => row[`imagen_${index + 1}`]).map(text).filter(Boolean)
+  if (!references.length && color) references.push(`${model}/${color}.jpeg`)
+  for (const reference of references) {
+    let url: string | undefined
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(reference) && !/^https:\/\//i.test(reference)) throw new Error('Las URLs de imagen deben usar HTTPS')
+    if (/^https:\/\//i.test(reference)) { const parsed = new URL(reference); if (parsed.username || parsed.password || !parsed.hostname) throw new Error('URL de imagen inválida'); url = parsed.href }
+    else {
+      if (/^(?:file:|\/\/)/i.test(reference)) throw new Error('URL de imagen inválida')
+      const portable = /^[a-z]:/i.test(reference) ? reference.replace(/\\/g, '/').split('/').slice(-2).join('/') : reference
+      const normalized = normalizeImagePath(portable)
+      let matches = normalizedImages.filter(image => image.path === normalized || image.path.endsWith(`/${normalized}`))
+      if (!normalized.includes('/')) matches = matches.filter(image => image.path.includes(`${model}/`))
+      if (matches.length > 1) throw new Error(`Imagen ambigua: ${reference}`)
+      url = matches[0]?.url
+    }
+    if (url && /^https:\/\//.test(url)) { images.push({ url, alt: `${name}${color ? ` · ${color}` : ''}` }); result.summary.imagesFound++ }
+    else { result.summary.imagesMissing++; issue(rowNumber, 'imagen', `Imagen no encontrada: ${reference}`, 'WARNING') }
+  }
+  return images
+}
 function decimal(value: unknown): number | null {
   if (!nonempty(value)) return null
   if (typeof value === 'number') return Number.isFinite(value) ? value : NaN
@@ -62,10 +84,75 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
     const row = fields(raw)
     const name = text(row.nombre_producto), sku = text(row.sku), color = text(row.color)
     const model = normalizeCatalogKey(name.replace(/^modelo\s+/i, ''))
-    if (!name || !sku || !model) { issue(rowNumber, 'nombre_producto/sku', 'Nombre y SKU son obligatorios'); return }
+    if (!name || !model) { issue(rowNumber, 'nombre_producto', 'Nombre del producto obligatorio'); return }
+    if (!sku) {
+      try {
+        const requestedProductSku = text(row.sku_producto)
+        const modelMatches = existing.filter(product => normalizeCatalogKey(product.name.replace(/^modelo\s+/i, '')) === model || product.slug === model)
+        if (modelMatches.length > 1) throw new Error('Hay más de un producto existente para este modelo; requiere reconciliación Owner antes de importar')
+        const base = modelMatches[0]
+        const productSku = requestedProductSku || base?.sku || ''
+        if (!productSku) throw new Error('sku_producto es obligatorio para un modelo nuevo; no se generará un SKU automáticamente')
+        if (base && requestedProductSku && skuKey(requestedProductSku) !== skuKey(base.sku)) throw new Error('sku_producto no coincide con el SKU principal existente')
+        const skuCollision = existing.some(product => {
+          if (product.id === base?.id) return product.variants.some(variant => skuKey(variant.sku) === skuKey(productSku))
+          return [product.sku, ...product.variants.map(variant => variant.sku)].some(existingSku => skuKey(existingSku) === skuKey(productSku))
+        })
+        if (skuCollision) throw new Error(`El SKU principal ${productSku} ya pertenece a otro registro comercial`)
+        const hasVariantData = [color, row.talla, row.stock_actual, row.stock_por_talla_json, row.stock_individual_por_talla_y_por_color, row.precio_venta, row.precio_promocional, row.disponible].some(nonempty)
+        if (hasVariantData) throw new Error('Una ficha informativa sin variantes no puede incluir color, talla, precio, stock ni disponibilidad')
+        if (seen.has(skuKey(productSku))) { result.summary.duplicateSkus++; throw new Error(`SKU principal repetido: ${productSku}`) }
+        seen.add(skuKey(productSku))
+        const requestedActive = boolean(row.activo)
+        if (requestedActive === null) throw new Error('activo es obligatorio')
+        const images = resolveImages(row, model, name, '', normalizedImages, result, rowNumber, issue)
+        const currency = base?.currency ?? (text(row.moneda).toUpperCase() || null)
+        if (currency !== null && !/^[A-Z]{3}$/.test(currency)) throw new Error('moneda debe contener un código ISO explícito o permanecer pendiente')
+        if (base && currency !== base.currency && text(row.moneda)) throw new Error('Una ficha informativa no puede modificar la moneda de un producto existente')
+        const id = base?.id ?? `${tenantId}:model:${model}`
+        if (!base && existing.some(product => product.id === id)) throw new Error('El identificador determinista ya pertenece a un registro distinto')
+        const product: CommerceProduct = {
+          ...(base ?? {}), id, tenantId, sku: productSku, slug: base?.slug ?? model, name,
+          description: text(row.descripcion) || base?.description || '', commercialSummary: text(row.descripcion) || base?.commercialSummary || '', category: text(row.categoria) || base?.category || '',
+          // Informational imports update only editorial fields on an existing record. In particular,
+          // they must not change commercial state, price, fulfillment, or linked variants.
+          status: base?.status ?? (requestedActive ? 'ACTIVE' : 'DRAFT'),
+          visibility: base?.visibility ?? (requestedActive ? 'VISIBLE' : 'HIDDEN'),
+          fulfillmentMode: base?.fulfillmentMode ?? 'STOCK',
+          pricingStatus: base?.pricingStatus ?? 'PENDING',
+          costCents: base?.costCents ?? null, percentage: base?.percentage ?? null, percentageType: base?.percentageType ?? null,
+          salePriceCents: base?.salePriceCents ?? null, currency,
+          images: images.length ? images : base?.images ?? [],
+          // Keep existing variants byte-for-byte equivalent; information-only rows contain no variant data.
+          variants: base?.variants ?? [],
+          collection: text(row.coleccion) || base?.collection, gender: text(row.genero) || base?.gender,
+          characteristics: text(row.caracteristicas).split(/[;|\\n]+/).map(value => value.trim()).filter(Boolean).length ? text(row.caracteristicas).split(/[;|\\n]+/).map(value => value.trim()).filter(Boolean) : base?.characteristics,
+          material: text(row.material) || base?.material, ganoBotNotes: text(row.notas_ganobot) || base?.ganoBotNotes,
+          internalNotes: text(row.notas_internas) || base?.internalNotes, sizeGuide: base?.sizeGuide,
+          sizeRecommendation: text(row.recomendacion_talla) || base?.sizeRecommendation,
+          preparationTime: base?.preparationTime, deliveryType: base?.deliveryType,
+          exchangePolicy: base?.exchangePolicy ?? { allowed: null, conditions: '' },
+        }
+        if (!base) delete product.promotionalPriceCents
+        validateCommerceProduct(product)
+        groups.set(id, product)
+        result.summary.validRows++
+        if (base) result.summary.updates++
+        result.issues.push({ row: rowNumber, field: 'variantes/precio/stock', message: 'Ficha informativa: no crea variantes ni inventario; la compra permanece bloqueada hasta confirmar datos comerciales.', severity: 'WARNING' })
+      } catch (cause) { issue(rowNumber, 'fila', cause instanceof Error ? cause.message : 'Fila inválida') }
+      return
+    }
+    if (!sku) { issue(rowNumber, 'sku', 'SKU de variante obligatorio'); return }
     if (seen.has(skuKey(sku))) { result.summary.duplicateSkus++; issue(rowNumber, 'sku', `SKU repetido: ${sku}`); return }
     seen.add(skuKey(sku))
     try {
+      const existingBySku = existing.find(product => product.variants.some(variant => skuKey(variant.sku) === skuKey(sku)))
+      const base = existingBySku ?? existing.find(product => normalizeCatalogKey(product.name.replace(/^modelo\s+/i, '')) === model || product.slug === model)
+      const requestedProductSku = text(row.sku_producto)
+      const productSku = requestedProductSku || base?.sku || ''
+      if (!productSku) throw new Error('sku_producto es obligatorio para un modelo nuevo; no se generará un SKU automáticamente')
+      if (base && requestedProductSku && skuKey(requestedProductSku) !== skuKey(base.sku)) throw new Error('sku_producto no coincide con el SKU principal existente')
+      if (skuKey(productSku) === skuKey(sku)) throw new Error('El SKU principal debe ser distinto del SKU de variante')
       const currency = text(row.moneda).toUpperCase()
       if (!/^[A-Z]{3}$/.test(currency)) throw new Error('moneda debe contener un código ISO explícito')
       const requestedActive = boolean(row.activo), available = boolean(row.disponible)
@@ -102,45 +189,24 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       for (const amount of [sale, promotion, cost]) if (amount !== null && (!Number.isFinite(amount) || amount < 0)) throw new Error('Precio/costo inválido')
       if (sale !== null && sale <= 0) throw new Error('precio_venta debe ser mayor que cero o vacío')
       const cents = (amount: number | null) => amount === null ? null : Math.round(amount * 100)
-      const existingBySku = existing.find(product => product.variants.some(variant => skuKey(variant.sku) === skuKey(sku)))
-      const base = existingBySku ?? existing.find(product => normalizeCatalogKey(product.name.replace(/^modelo\s+/i, '')) === model || product.slug === model)
       if (existing.some(product => skuKey(product.sku) === skuKey(sku))) throw new Error('SKU de variante coincide con SKU de producto padre')
       const groupKey = base?.id ?? `${tenantId}:model:${model}`
       const working = groups.get(groupKey)
       if (working && working.currency !== currency) throw new Error('Todas las variantes del modelo deben usar la misma moneda')
-      const images: ProductImage[] = []
-      const references = Array.from({ length: 6 }, (_, index) => row[`imagen_${index + 1}`]).map(text).filter(Boolean)
-      if (!references.length && color) references.push(`${model}/${color}.jpeg`)
-      for (const reference of references) {
-        let url: string | undefined
-        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(reference) && !/^https:\/\//i.test(reference)) throw new Error('Las URLs de imagen deben usar HTTPS')
-        if (/^https:\/\//i.test(reference)) { const parsed = new URL(reference); if (parsed.username || parsed.password || !parsed.hostname) throw new Error('URL de imagen inválida'); url = parsed.href }
-        else {
-          if (/^(?:file:|\/\/)/i.test(reference)) throw new Error('URL de imagen inválida')
-          // Legacy Excel may contain Windows paths. Resolve only the model/filename in the supplied asset manifest; never read the server filesystem.
-          const portable = /^[a-z]:/i.test(reference) ? reference.replace(/\\/g, '/').split('/').slice(-2).join('/') : reference
-          const normalized = normalizeImagePath(portable)
-          let matches = normalizedImages.filter(image => image.path === normalized || image.path.endsWith(`/${normalized}`))
-          if (!normalized.includes('/')) matches = matches.filter(image => image.path.includes(`${model}/`))
-          if (matches.length > 1) throw new Error(`Imagen ambigua: ${reference}`)
-          url = matches[0]?.url
-        }
-        if (url && /^https:\/\//.test(url)) { images.push({ url, alt: `${name}${color ? ` · ${color}` : ''}` }); result.summary.imagesFound++ }
-        else { result.summary.imagesMissing++; issue(rowNumber, 'imagen', `Imagen no encontrada: ${reference}`, 'WARNING') }
-      }
+      const images = resolveImages(row, model, name, color, normalizedImages, result, rowNumber, issue)
       const previousVariant = base?.variants.find(variant => skuKey(variant.sku) === skuKey(sku))
       const purchaseAvailability = fulfillmentMode === 'STOCK' ? stock !== null && stock > 0 : available ?? false
-      // An explicitly active row is still a draft until it has an actual price and stock evidence.
-      // Keep zero-stock products publishable as unavailable, but never publish an unknown balance.
-      const readyForPublication = sale !== null && (fulfillmentMode === 'STOCK' ? stock !== null : available === true)
-      const active = requestedActive === true && readyForPublication
+      // Publication and purchase readiness are separate. A visible catalog card may be
+      // published while its price/stock is pending; checkout remains blocked downstream.
+      const readyForPurchase = sale !== null && (fulfillmentMode === 'STOCK' ? stock !== null : available === true)
+      const active = requestedActive === true
       const variant: CommerceProductVariant = { ...(previousVariant ?? {}), id: previousVariant?.id ?? `${tenantId}:sku:${encodeURIComponent(skuKey(sku))}`, sku, color: color || null, status: active ? 'ACTIVE' : 'DRAFT', visibility: active ? 'VISIBLE' : 'HIDDEN', available: purchaseAvailability, stock, importedStock:stock, ...(initialStockBySize ? { initialStockBySize } : {}), minimumStock, salePriceCents: cents(sale), promotionalPriceCents: cents(promotion), fulfillmentMode, sizes, ...(sizes.length === 1 ? { size: sizes[0] } : {}), images: images.length ? images : previousVariant?.images ?? [] }
       const candidates = [...(working?.variants ?? base?.variants ?? [])].filter(item => item.id !== variant.id).concat(variant)
       const knownPrices = candidates.map(item => item.salePriceCents).filter((price): price is number => typeof price === 'number')
       const parentPrice = knownPrices.length ? Math.min(...knownPrices) : null
       const guide = parseFlatSizeGuide(row.guia_tallas)
       const product: CommerceProduct = {
-        ...(working ?? base ?? {}), id: groupKey, tenantId, sku: base?.sku ?? `MODEL-${model.toUpperCase()}`, slug: base?.slug ?? model, name, category: text(row.categoria), description: text(row.descripcion), commercialSummary: text(row.descripcion), currency,
+        ...(working ?? base ?? {}), id: groupKey, tenantId, sku: productSku, slug: base?.slug ?? model, name, category: text(row.categoria), description: text(row.descripcion), commercialSummary: text(row.descripcion), currency,
         status: candidates.some(item => item.status === 'ACTIVE') ? 'ACTIVE' : 'DRAFT', visibility: candidates.some(item => item.visibility === 'VISIBLE') ? 'VISIBLE' : 'HIDDEN', fulfillmentMode, pricingStatus: parentPrice === null ? 'PENDING' : 'READY', salePriceCents: parentPrice, costCents: cents(cost), percentage: base?.percentage ?? null, percentageType: base?.percentageType ?? null, images: working?.images.length ? working.images : images.length ? images : base?.images ?? [], variants: candidates,
         collection: text(row.coleccion), gender: text(row.genero), characteristics: text(row.caracteristicas).split(/[;|\n]+/).map(value => value.trim()).filter(Boolean), material: text(row.material), ganoBotNotes: text(row.notas_ganobot), internalNotes: text(row.notas_internas), ...(guide ? { sizeGuide: guide } : {}), sizeRecommendation: text(row.recomendacion_talla), preparationTime: text(row.tiempo_preparacion), deliveryType: text(row.tipo_entrega), exchangePolicy: { allowed: boolean(row.permite_cambio), conditions: text(row.condiciones_cambio) },
       }
@@ -148,7 +214,7 @@ export function previewCatalogImport(tenantId: string, source: readonly CatalogR
       delete product.promotionalPriceCents
       validateCommerceProduct(product)
       if (available === null) issue(rowNumber, 'disponible', 'Disponibilidad no indicada; la variante queda sin disponibilidad confirmada', 'WARNING')
-      if (requestedActive && !readyForPublication) issue(rowNumber, 'activo', 'Se conserva como borrador: falta precio de venta o stock/disponibilidad verificable', 'WARNING')
+      if (requestedActive && !readyForPurchase) issue(rowNumber, 'precio_venta/stock_actual', 'La ficha queda visible, pero no admite compra directa hasta confirmar precio y disponibilidad', 'WARNING')
       if (!sizes.length) issue(rowNumber, 'talla', 'Sin tallas documentadas', 'WARNING')
       if (stock === null && fulfillmentMode === 'STOCK') issue(
         rowNumber,

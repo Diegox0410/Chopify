@@ -59,6 +59,7 @@ export class MemoryTaskRepository implements CommercialTaskRepository {
 }
 export class MemoryEscalationRepository implements EscalationRepository {
   constructor(private readonly db: SampleDatabase) {}
+  async getById(tenantId:string,id:string){return this.db.escalations.find(item=>item.tenantId===tenantId&&item.id===id)??null}
   async listOpen(tenantId: string) { return this.db.escalations.filter((item) => item.tenantId === tenantId && item.status !== 'RESOLVED') }
   async save(tenantId: string, item: HumanEscalation) { assertTenant(tenantId, item); upsert(this.db.escalations, item) }
 }

@@ -97,7 +97,7 @@ export function CatalogImportPanel({tenantId,products,onImported}:{tenantId:stri
   }
   if(tenantId!=='tenant-floes')return null
   return <section className="panel catalog-import" key={tenantId}>
-    <header><span className="eyebrow">Catálogo → Importar productos</span><h2>Excel + imágenes</h2><p>Usa la plantilla maestra FLOES. Revisa las filas antes de importar. El mismo SKU actualiza su variante y conserva los pedidos existentes.</p></header>
+    <header><span className="eyebrow">Catálogo → Importar productos</span><h2>Excel + imágenes</h2><p>Usa la plantilla maestra FLOES e incluye el SKU principal oficial del modelo (`sku_producto`) y el SKU real de cada variante. No se generan SKU automáticamente. Revisa las filas antes de importar; el mismo SKU actualiza su variante y conserva los pedidos existentes.</p></header>
     <div className="product-form-grid">
       <label className="field"><span>1. Excel o CSV</span><input type="file" accept=".xlsx,.csv" disabled={busy} onChange={event=>void analyze(event.target.files?.[0])}/></label>
       <label className="field"><span>2. ZIP o imágenes (carpetas por modelo)</span><input type="file" multiple accept=".zip,.jpeg,.jpg,.png,.webp" disabled={busy} onChange={event=>void selectAssets(event.target.files)}/><small>{assets.length} imágenes seleccionadas. También puedes arrastrar el archivo sobre este control.</small></label>

@@ -5,11 +5,15 @@ import { previewCatalogImport, type CatalogRow } from './catalogImport.js'
 import { createSampleOrderDatabase, SampleBusinessCommerceAdapter } from '../adapters/memory/orderRepositories.js'
 import { commerceCatalogView } from './commerceCatalogView.js'
 
-const row = (sku = 'FLOES-DAN-VINO-M', extra: Record<string, unknown> = {}): CatalogRow => ({
-  nombre_producto: 'Modelo Daniela', sku, color: 'Vino', talla: 'M', moneda: 'USD', activo: 'SI', disponible: 'SI',
-  tipo_entrega: 'Servientrega', stock_actual: 10, stock_minimo: 2, precio_venta: 40, precio_promocional: 37,
-  ...extra,
-})
+const row = (sku = 'FLOES-DAN-VINO-M', extra: Record<string, unknown> = {}): CatalogRow => {
+  const name = String(extra.nombre_producto ?? 'Modelo Daniela')
+  const derivedTestModelSku = `TEST-MODEL-${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^modelo\s+/i, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toUpperCase()}`
+  return {
+    nombre_producto: name, sku_producto: derivedTestModelSku, sku, color: 'Vino', talla: 'M', moneda: 'USD', activo: 'SI', disponible: 'SI',
+    tipo_entrega: 'Servientrega', stock_actual: 10, stock_minimo: 2, precio_venta: 40, precio_promocional: 37,
+    ...extra,
+  }
+}
 const perSizeRow = (sku = 'FLOES-DAN-01', extra: Record<string, unknown> = {}): CatalogRow => row(sku, {
   stock_actual: '', talla: 'Xs-S-M-L-XL', stock_individual_por_talla_y_por_color: 10,
   imagen_1: 'https://images.example.test/daniela-vino.webp', ...extra,
@@ -111,14 +115,107 @@ describe('FLOES catalog import', () => {
     expect(ambiguous.issues.some(issue => /no ambos/.test(issue.message))).toBe(true)
   })
 
-  it('keeps rows with missing price or stock as non-published drafts', () => {
+  it('publishes an explicitly active catalog card with pending price/stock but keeps it unavailable for purchase', () => {
     const preview = previewCatalogImport('tenant-floes', [row('D-DRAFT', {
       precio_venta: '', precio_promocional: '', stock_actual: '', activo: 'SI', disponible: 'SI',
     })])
     const variant = preview.products[0].variants[0]
-    expect(variant).toMatchObject({ status: 'DRAFT', visibility: 'HIDDEN', available: false, stock: null, salePriceCents: null })
-    expect(preview.products[0].status).toBe('DRAFT')
-    expect(preview.issues.some(issue => issue.field === 'activo' && issue.severity === 'WARNING')).toBe(true)
+    expect(variant).toMatchObject({ status: 'ACTIVE', visibility: 'VISIBLE', available: false, stock: null, salePriceCents: null })
+    expect(preview.products[0]).toMatchObject({ status: 'ACTIVE', visibility: 'VISIBLE', pricingStatus: 'PENDING', salePriceCents: null })
+    expect(preview.issues.some(issue => issue.field === 'precio_venta/stock_actual' && issue.severity === 'WARNING')).toBe(true)
+  })
+
+  it('publishes an information-only model card without creating variants, currency, price, or stock', async () => {
+    const preview = previewCatalogImport('tenant-floes', [row('', {
+      sku_producto: 'PROPOSED-DANIELA', color: '', talla: '', moneda: '', activo: 'SI', disponible: '',
+      tipo_entrega: '', stock_actual: '', stock_individual_por_talla_y_por_color: '', stock_por_talla_json: '',
+      precio_venta: '', precio_promocional: '', imagen_1: 'DANIELA/daniela-01.webp',
+    })], [], { 'DANIELA/daniela-01.webp': 'https://www.floes-ec.com/images/editorial/modelos/daniela-01.webp' })
+    expect(preview.summary).toMatchObject({ validRows: 1, newProducts: 1, newVariants: 0, imagesFound: 1 })
+    expect(preview.products[0]).toMatchObject({
+      sku: 'PROPOSED-DANIELA', status: 'ACTIVE', visibility: 'VISIBLE', pricingStatus: 'PENDING',
+      salePriceCents: null, currency: null, variants: [], fulfillmentMode: 'STOCK',
+    })
+    const db = createSampleOrderDatabase(), adapter = new SampleBusinessCommerceAdapter(db)
+    await adapter.upsertProducts('tenant-floes', preview.products)
+    const view = await commerceCatalogView((await adapter.listProducts('tenant-floes'))[0], adapter)
+    expect(view).toMatchObject({ available: false, price: null, variants: [], imageUrl: 'https://www.floes-ec.com/images/editorial/modelos/daniela-01.webp' })
+    expect(preview.issues.some(issue => issue.field === 'variantes/precio/stock' && issue.severity === 'WARNING')).toBe(true)
+  })
+
+  it('updates only editorial fields on an existing information-only model', () => {
+    const original = previewCatalogImport('tenant-floes', [row('D-EXISTING')]).products[0]
+    const originalVariants = structuredClone(original.variants)
+    const info = previewCatalogImport('tenant-floes', [row('', {
+      sku_producto: original.sku, color: '', talla: '', moneda: '', activo: 'SI', disponible: '',
+      tipo_entrega: '', stock_actual: '', stock_individual_por_talla_y_por_color: '', stock_por_talla_json: '',
+      precio_venta: '', precio_promocional: '', imagen_1: 'DANIELA/daniela-01.webp',
+    })], [original], { 'DANIELA/daniela-01.webp': 'https://www.floes-ec.com/images/editorial/modelos/daniela-01.webp' })
+    expect(info.summary).toMatchObject({ validRows: 1, newProducts: 0, newVariants: 0, updates: 1 })
+    expect(info.products[0]).toMatchObject({
+      id: original.id, sku: original.sku, status: original.status, visibility: original.visibility,
+      pricingStatus: original.pricingStatus, salePriceCents: original.salePriceCents,
+      currency: original.currency, fulfillmentMode: original.fulfillmentMode,
+      images: [{ url: 'https://www.floes-ec.com/images/editorial/modelos/daniela-01.webp' }],
+    })
+    expect(info.products[0].variants).toEqual(originalVariants)
+  })
+
+  it('keeps archived legacy Esencial intact while allowing an explicitly separate official model id', () => {
+    const legacy = {
+      ...previewCatalogImport('tenant-floes', [row('OLD-ESENCIAL', { nombre_producto: 'Scrub Esencial', sku_producto: 'FLO-SCR-BAS-001' })]).products[0],
+      id: 'floes-scrub-esencial', name: 'Scrub Esencial', slug: 'scrub-esencial',
+      sku: 'FLO-SCR-BAS-001', status: 'ARCHIVED' as const, visibility: 'HIDDEN' as const,
+    }
+    const info = previewCatalogImport('tenant-floes', [row('', {
+      nombre_producto: 'Esencial', sku_producto: 'MODEL-ESENCIAL', sku: '', color: '', talla: '', moneda: '',
+      activo: 'SI', disponible: '', tipo_entrega: '', stock_actual: '', stock_individual_por_talla_y_por_color: '',
+      stock_por_talla_json: '', precio_venta: '', precio_promocional: '',
+      imagen_1: 'https://www.floes-ec.com/images/editorial/modelos/esencial-01.webp',
+    })], [legacy], { 'https://www.floes-ec.com/images/editorial/modelos/esencial-01.webp': 'https://www.floes-ec.com/images/editorial/modelos/esencial-01.webp' })
+    expect(info.summary).toMatchObject({ validRows: 1, newProducts: 1, updates: 0, newVariants: 0 })
+    expect(info.products[0]).toMatchObject({ id: 'tenant-floes:model:esencial', sku: 'MODEL-ESENCIAL', variants: [] })
+    expect(legacy).toMatchObject({ id: 'floes-scrub-esencial', sku: 'FLO-SCR-BAS-001', status: 'ARCHIVED', visibility: 'HIDDEN' })
+  })
+
+  it('does not change any inventory position when importing an information-only card for an existing model', async () => {
+    const db = createSampleOrderDatabase(), adapter = new SampleBusinessCommerceAdapter(db)
+    const original = previewCatalogImport('tenant-floes', [perSizeRow()]).products[0]
+    await adapter.upsertProducts('tenant-floes', [original])
+    const inventoryBefore = structuredClone(db.inventory)
+    const info = previewCatalogImport('tenant-floes', [row('', {
+      sku_producto: original.sku, color: '', talla: '', moneda: '', disponible: '', tipo_entrega: '',
+      stock_actual: '', stock_individual_por_talla_y_por_color: '', stock_por_talla_json: '', precio_venta: '', precio_promocional: '',
+    })], [original])
+    await adapter.upsertProducts('tenant-floes', info.products)
+    expect(db.inventory).toEqual(inventoryBefore)
+  })
+
+  it('rejects a new model without an official parent SKU instead of synthesizing one', () => {
+    const preview = previewCatalogImport('tenant-floes', [row('D-NO-PARENT-SKU', { sku_producto: '' })])
+    expect(preview.products).toHaveLength(0)
+    expect(preview.issues).toContainEqual(expect.objectContaining({ field: 'fila', severity: 'ERROR', message: expect.stringContaining('sku_producto es obligatorio') }))
+  })
+
+  it('rejects colliding SKUs and ambiguous existing model identities in information-only imports', () => {
+    const existing = previewCatalogImport('tenant-floes', [row('D-EXISTING')]).products[0]
+    const newModel = row('', { nombre_producto: 'Modelo Maemi', sku_producto: existing.sku, color: '', talla: '', moneda: '', disponible: '', tipo_entrega: '', stock_actual: '', precio_venta: '', precio_promocional: '' })
+    const skuCollision = previewCatalogImport('tenant-floes', [newModel], [existing])
+    expect(skuCollision.products).toHaveLength(0)
+    expect(skuCollision.issues.some(issue => issue.message.includes('SKU principal') && issue.severity === 'ERROR')).toBe(true)
+
+    const duplicate = { ...existing, id: 'duplicate-daniela' }
+    const ambiguous = previewCatalogImport('tenant-floes', [row('', { sku_producto: existing.sku, color: '', talla: '', moneda: '', disponible: '', tipo_entrega: '', stock_actual: '', precio_venta: '', precio_promocional: '' })], [existing, duplicate])
+    expect(ambiguous.products).toHaveLength(0)
+    expect(ambiguous.issues.some(issue => issue.message.includes('más de un producto existente') && issue.severity === 'ERROR')).toBe(true)
+  })
+
+  it('does not attach a generic size guide to a model without approved measurements', async () => {
+    const db = createSampleOrderDatabase(), adapter = new SampleBusinessCommerceAdapter(db)
+    const preview = previewCatalogImport('tenant-floes', [row('D-NO-GUIDE', { guia_tallas: '' })])
+    await adapter.upsertProducts('tenant-floes', preview.products)
+    const product = (await adapter.listProducts('tenant-floes'))[0]
+    expect((await commerceCatalogView(product, adapter)).sizeGuide).toBeUndefined()
   })
 
   it('reserves and commits one size without changing the other size positions', async () => {

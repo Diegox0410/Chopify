@@ -1,32 +1,30 @@
-import { ArrowRight, Plus, Search, Users } from 'lucide-react'
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { sampleCommercialApp } from '../../application/sampleApp'
-import type { Customer, CustomerStatus, Opportunity } from '../../domain'
-import { OPEN_PIPELINE_STATUSES } from '../../domain'
+import { adminCall } from '../../services/adminApi'
 import { useUIStore } from '../../stores/uiStore'
-import { date, money, tenantNames } from '../commercial/formatters'
-import { EmptyState, SampleBadge, StatusPill, TenantFilter } from '../commercial/shared'
+import { tenantDefinitions, tenantIds } from '../../config/tenantRegistry.js'
+import { conversationDate, type LiveCustomer } from '../conversations/conversationApi'
 
 export function CustomersPage() {
-  const scope = useUIStore((state) => state.tenantScope)
-  const [customers, setCustomers] = useState<readonly Customer[]>([])
-  const [opportunities, setOpportunities] = useState<readonly Opportunity[]>([])
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState<CustomerStatus | ''>('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [creating, setCreating] = useState(false)
-  const load = useCallback(() => { setLoading(true); setError(''); void Promise.all([sampleCommercialApp.listCustomers(scope, { search, status: status || undefined }), sampleCommercialApp.listOpportunities(scope)]).then(([nextCustomers, nextOpportunities]) => { setCustomers(nextCustomers); setOpportunities(nextOpportunities) }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'No fue posible cargar clientes')).finally(() => setLoading(false)) }, [scope, search, status])
+  const tenant = useUIStore(state => state.tenantScope)
+  const setTenant = useUIStore(state => state.setTenantScope)
+  const [customers, setCustomers] = useState<Array<LiveCustomer & {lastInteractionAt?:string}>>([])
+  const [error, setError] = useState(''); const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState(''); const [page, setPage] = useState(0)
   useEffect(() => {
-  queueMicrotask(load)
-}, [load])
-  const summary = useMemo(() => new Map(customers.map((customer) => { const open = opportunities.filter((item) => item.customerId === customer.id && item.tenantId === customer.tenantId && OPEN_PIPELINE_STATUSES.includes(item.status)); return [customer.id, { count: open.length, value: open.reduce((sum, item) => sum + item.estimatedValueCents, 0) }] })), [customers, opportunities])
-  async function create(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); const tenantId = String(data.get('tenantId')); try { await sampleCommercialApp.createCustomer({ tenantId, name: String(data.get('name')), phone: String(data.get('phone')) || undefined, email: String(data.get('email')) || undefined, acquisitionSource: String(data.get('source')) || undefined }); setCreating(false); event.currentTarget.reset(); load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible crear el cliente') } }
-  return <div className="page"><div className="page-heading"><div><span className="eyebrow">CRM operativo</span><h1>Clientes</h1><p>Identidades comerciales separadas por negocio, con pipeline y actividad contextual.</p></div><div className="heading-actions"><SampleBadge /><button className="primary-button" onClick={() => setCreating((value) => !value)}><Plus size={16} /> Crear cliente</button></div></div>
-    <div className="filter-bar"><label className="search-field"><Search size={16} /><span className="sr-only">Buscar clientes</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, email o teléfono" /></label><TenantFilter /><label className="field compact-field"><span>Estado</span><select value={status} onChange={(event) => setStatus(event.target.value as CustomerStatus | '')}><option value="">Todos</option><option>LEAD</option><option>ACTIVE</option><option>INACTIVE</option><option>ARCHIVED</option></select></label></div>
-    {creating && <form className="inline-form panel" onSubmit={create}><div><span className="eyebrow">Nuevo registro SAMPLE</span><h2>Crear cliente</h2></div><label className="field"><span>Negocio</span><select name="tenantId" defaultValue={scope === 'ALL' ? 'tenant-mg' : scope}><option value="tenant-mg">MG</option><option value="tenant-dgng">DGNG</option><option value="tenant-floes">FLOES</option></select></label><label className="field"><span>Nombre</span><input name="name" required /></label><label className="field"><span>Teléfono</span><input name="phone" /></label><label className="field"><span>Email</span><input name="email" type="email" /></label><label className="field"><span>Origen</span><input name="source" /></label><button className="primary-button" type="submit">Guardar cliente</button></form>}
-    {error && <div className="error-banner" role="alert">{error} <button onClick={load}>Reintentar</button></div>}
-    <section className="panel data-panel"><div className="table-header"><span>{loading ? 'Cargando…' : `${customers.length} clientes`}</span><small>Datos comerciales aislados por empresa</small></div>{!loading && customers.length === 0 ? <EmptyState title="Sin clientes en este filtro" body="Ajusta la búsqueda o registra el primer cliente." /> : <div className="responsive-table"><div className="table-row table-labels"><span>Customer</span><span>Business</span><span>Status</span><span>Origin</span><span>Last interaction</span><span>Open opportunities</span><span>Open pipeline</span><span /></div>{customers.map((customer) => <div className="table-row" key={`${customer.tenantId}-${customer.id}`}><div className="entity-primary"><span className="initial-avatar"><Users size={15} /></span><div><strong>{customer.name}</strong><small>{customer.email || customer.phone || 'Sin contacto'}</small></div></div><span data-label="Business">{tenantNames[customer.tenantId]}</span><span data-label="Status"><StatusPill value={customer.status} /></span><span data-label="Origin">{customer.acquisitionSource || '—'}</span><span data-label="Last interaction">{date(customer.lastInteractionAt)}</span><span data-label="Open opportunities">{summary.get(customer.id)?.count ?? 0}</span><strong data-label="Open pipeline">{money(summary.get(customer.id)?.value ?? 0)}</strong><Link className="row-link" aria-label={`Abrir ${customer.name}`} to={`/customers/${customer.tenantId}/${customer.id}`}><ArrowRight size={16} /></Link></div>)}</div>}</section>
-  </div>
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setLoading(true); setError('')
+      const ids = tenant === 'all' || tenant === 'ALL' ? tenantIds : [tenant]
+      void Promise.all(ids.map(id => adminCall<Array<LiveCustomer & {lastInteractionAt?:string}>>('listCustomers', id)))
+        .then(rows => { if (!cancelled) { setCustomers(rows.flat()); setPage(0) } })
+        .catch(cause => { if (!cancelled) { setCustomers([]); setError(cause instanceof Error ? cause.message : 'Datos no disponibles') } })
+        .finally(() => { if (!cancelled) setLoading(false) })
+    }, 0)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [tenant])
+  const needle = query.trim().toLocaleLowerCase('es')
+  const filtered = customers.filter(customer => `${customer.name} ${customer.email || ''} ${customer.phone || ''}`.toLocaleLowerCase('es').includes(needle))
+  const visible = filtered.slice(page * 25, (page + 1) * 25)
+  return <div className="page"><div className="page-heading"><div><span className="eyebrow">CRM persistido</span><h1>Clientes</h1><p>La ficha recupera las conversaciones desde la misma fuente de mensajes.</p></div><label>Negocio <select value={tenant} onChange={event => setTenant(event.target.value)}><option value="all">Todos los negocios</option>{tenantIds.map(id => <option key={id} value={id}>{tenantDefinitions[id].name}</option>)}</select></label></div><label>Buscar cliente <input value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} /></label>{error && <div className="error-banner" role="alert">{error}</div>}<section className="panel admin-record-list">{loading ? <p>Cargando clientes…</p> : !visible.length ? <p>Sin clientes persistidos en este filtro.</p> : visible.map(customer => <article key={`${customer.tenantId}:${customer.id}`}><header><Link to={`/customers/${customer.tenantId}/${customer.id}`}>{customer.name}</Link><span>{customer.status}</span></header><p>{tenantDefinitions[customer.tenantId]?.name || customer.tenantId} · {customer.phone || customer.email || 'Sin contacto'}</p><small>Última interacción: {conversationDate(customer.lastInteractionAt)}</small></article>)}</section><div className="heading-actions"><button className="secondary-button" disabled={!page} onClick={() => setPage(page - 1)}>Anterior</button><span>Página {page + 1}</span><button className="secondary-button" disabled={(page + 1) * 25 >= filtered.length} onClick={() => setPage(page + 1)}>Siguiente</button></div></div>
 }

@@ -10,5 +10,6 @@ export interface BusinessCommerceAdapter {
   commitInventory(tenantId: string, items: readonly InventoryReservationItem[]): Promise<readonly InventoryPosition[]>
   publishOrderReference(tenantId: string, orderId: string): Promise<void>
   listProducts(tenantId: string): Promise<readonly CommerceProduct[]>
+  updateProductInformation(tenantId: string, products: readonly CommerceProduct[]): Promise<readonly CommerceProduct[]>
   upsertProducts(tenantId: string, products: readonly CommerceProduct[]): Promise<readonly CommerceProduct[]>
 }

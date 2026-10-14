@@ -48,6 +48,9 @@ export type CommerceGatewayOperation =
   | 'listCustomers'
   | 'listOpportunities'
   | 'listExceptions'
+  | 'getCatalogSnapshot'
+  | 'addCustomerNote'
+  | 'resolveEscalation'
 
 export interface CommerceGatewayRequest {
   operation: CommerceGatewayOperation
@@ -118,10 +121,15 @@ export class CommerceGateway {
     if (!Array.isArray(input.rows)) throw new Error('rows is required')
     const urls = input.imageUrls && typeof input.imageUrls === 'object' && !Array.isArray(input.imageUrls) ? input.imageUrls as Record<string,string> : {}
     if (Object.values(urls).some(url => typeof url !== 'string' || !url.startsWith('https://'))) throw new Error('Image manifest must contain HTTPS URLs')
-    const preview = previewCatalogImport(tenantId,input.rows as CatalogRow[],await this.commerce.listProducts(tenantId),urls)
+    const existing = await this.commerce.listProducts(tenantId)
+    const preview = previewCatalogImport(tenantId,input.rows as CatalogRow[],existing,urls)
     if(request.operation==='previewCatalogImport') return preview
     if(preview.issues.some(issue=>issue.severity==='ERROR')) throw new Error('Import contains errors; resolve preview before committing')
-    await this.commerce.upsertProducts(tenantId,preview.products)
+    const existingIds=new Set(existing.map(product=>product.id))
+    const updates=preview.products.filter(product=>existingIds.has(product.id))
+    const creations=preview.products.filter(product=>!existingIds.has(product.id))
+    if(updates.length)await this.commerce.updateProductInformation(tenantId,updates)
+    if(creations.length)await this.commerce.upsertProducts(tenantId,creations)
     return {...preview, committed:true}
    }
    case 'syncFloesCatalog':{
@@ -146,13 +154,14 @@ export class CommerceGateway {
    }
    case 'checkAvailability':{
     const productId=requiredString(input.productId,'productId');const variantId=optionalString(input.variantId)
-    const size=optionalString(input.size)?.toUpperCase()
+    const size=optionalString(input.size)?.trim().toUpperCase()
     const item=await this.commerce.getProduct(tenantId,productId,variantId)
     if(!item)return{productId,variantId,available:false,availableQuantity:0,reason:'not_found'}
     const quantity=typeof input.quantity==='number'?Math.max(1,Math.floor(input.quantity)):1
     const variant=variantId?item.variants.find((entry)=>entry.id===variantId&&entry.status==='ACTIVE'&&entry.visibility==='VISIBLE'):undefined
     if(variantId&&!variant)return{productId,variantId,available:false,reason:'variant_not_found'}
     const documentedSizes=[...new Set([...(variant?.sizes??[]),...(variant?.size?[variant.size]:[])])].map(value=>value.trim().toUpperCase())
+    if(tenantId==='tenant-floes'&&documentedSizes.length&&!size)return{productId,variantId,available:false,availableQuantity:null,availabilityStatus:'NOT_CONFIGURED',reason:'size_required'}
     if(size&&!documentedSizes.includes(size))return{productId,variantId,size,available:false,availableQuantity:0,availabilityStatus:'OUT_OF_STOCK',reason:'size_not_documented'}
     const mode=variant?.fulfillmentMode??item.fulfillmentMode
     const available=await this.commerce.getAvailability(tenantId,productId,variantId,size)
@@ -174,10 +183,10 @@ export class CommerceGateway {
    }
    case 'resolveCustomerIdentity':{
     const channel=requiredString(input.channel,'channel')
-    const allowedChannels=new Set(['WHATSAPP','INSTAGRAM','FACEBOOK','WEB','OTHER'] as const)
-    if(!allowedChannels.has(channel as 'WHATSAPP'|'INSTAGRAM'|'FACEBOOK'|'WEB'|'OTHER'))throw new Error('Invalid identity channel')
+    const allowedChannels=new Set(['WHATSAPP','INSTAGRAM','FACEBOOK','WEB','TIKTOK','OTHER'] as const)
+    if(!allowedChannels.has(channel as 'WHATSAPP'|'INSTAGRAM'|'FACEBOOK'|'WEB'|'TIKTOK'|'OTHER'))throw new Error('Invalid identity channel')
     const resolved=await this.identityResolver.resolve({
-     tenantId,channel:channel as 'WHATSAPP'|'INSTAGRAM'|'FACEBOOK'|'WEB'|'OTHER',
+     tenantId,channel:channel as 'WHATSAPP'|'INSTAGRAM'|'FACEBOOK'|'WEB'|'TIKTOK'|'OTHER',
      externalIdentifier:requiredString(input.externalIdentifier,'externalIdentifier'),
      name:optionalString(input.name),phone:optionalString(input.phone),email:optionalString(input.email),
      acquisitionSource:optionalString(input.acquisitionSource),
@@ -194,12 +203,13 @@ export class CommerceGateway {
     if(ids[0]){
      const item=await this.commerce.getProduct(tenantId,ids[0]);if(!item)throw new Error('Product not found in tenant')
      if(item.salePriceCents===null)throw new Error('Product pricing is pending')
+     if(!item.currency)throw new Error('Product currency is pending')
      cents=item.salePriceCents;currency=item.currency
     }else{
      if(typeof input.estimatedValueCents!=='number'||!Number.isInteger(input.estimatedValueCents)||input.estimatedValueCents<0)throw new Error('estimatedValueCents must be explicit')
      cents=input.estimatedValueCents;currency=requiredString(input.currency,'currency').toUpperCase()
     }
-    const opportunity=await this.commercial.createOpportunity({tenantId,customerId,intent:'PURCHASE_INTENT',estimatedValueCents:cents,currency,acquisitionSource:optionalString(input.source),conversionChannel:optionalString(input.source),assignedTo:'ganobot'})
+    const opportunity=await this.commercial.createOpportunity({tenantId,customerId,conversationId:optionalString(input.conversationId),intent:'PURCHASE_INTENT',estimatedValueCents:cents,currency,acquisitionSource:optionalString(input.source),conversionChannel:optionalString(input.source),assignedTo:'ganobot'})
     return{opportunityId:opportunity.id,customerId:opportunity.customerId,status:'new'}
    }
    case 'createOrderDraft':{
@@ -224,10 +234,13 @@ export class CommerceGateway {
      const firstVariant=items[0].variantId?first.variants.find(item=>item.id===items[0].variantId):undefined
      const firstPrice=effectiveSalePrice(first,firstVariant)
      if(firstPrice===null)throw new Error('Product pricing is pending')
-     const o=await this.commercial.createOpportunity({tenantId,customerId,intent:'PURCHASE_INTENT',estimatedValueCents:firstPrice*items[0].quantity,currency:first.currency,assignedTo:'ganobot'});opportunityId=o.id
+     if(!first.currency)throw new Error('Product currency is pending')
+     const o=await this.commercial.createOpportunity({tenantId,customerId,conversationId:optionalString(input.conversationId),intent:'PURCHASE_INTENT',estimatedValueCents:firstPrice*items[0].quantity,currency:first.currency,assignedTo:'ganobot'});opportunityId=o.id
     }
     let opportunity=await this.commercial.getOpportunity(tenantId,opportunityId)
     if(!opportunity)throw new Error('Opportunity not found in tenant')
+    if(opportunity.customerId!==customerId)throw new Error('Opportunity and customer must match')
+    if(input.conversationId!==undefined&&opportunity.conversationId!==requiredString(input.conversationId,'conversationId'))throw new Error('Opportunity and conversation must match')
     if(opportunity.status==='OPEN')opportunity=await this.commercial.qualifyOpportunity(tenantId,opportunity.id)
     if(opportunity.status==='QUALIFIED')opportunity=await this.commercial.startOpportunityCart(tenantId,opportunity.id)
     if(opportunity.status==='CART_STARTED')opportunity=await this.commercial.markOpportunityOrderCreated(tenantId,opportunity.id)
@@ -236,6 +249,12 @@ export class CommerceGateway {
    }
    case 'attachPaymentProof':{
     const orderId=requiredString(input.orderId,'orderId')
+    if(request.actor?.role==='AUTOMATION'){
+     const customerId=requiredString(input.customerId,'customerId')
+     const conversationId=requiredString(input.conversationId,'conversationId')
+     const order=await this.orders.getOrder(tenantId,orderId)
+     if(!order||order.customerId!==customerId||order.conversationId!==conversationId)throw new Error('Payment proof does not belong to this customer conversation')
+    }
     const proof:PaymentProof=await this.orders.submitPaymentProof({tenantId,orderId,reference:optionalString(input.externalReference),assetReference:optionalString(input.proofUrl),idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??orderId}:attachPaymentProof`,actor:actor(tenantId)})
     return{proofId:proof.id,paymentId:proof.paymentId,orderId:proof.orderId,status:'pending_review'}
    }
@@ -277,7 +296,25 @@ export class CommerceGateway {
     const customerDetail=await this.commercial.getCustomerDetail(tenantId,detail.order.customerId)
     return{...detail,customer:customerDetail?customer(customerDetail.customer):null}
    }
-   case 'listPaymentReviews': return this.orders.paymentReviews(tenantId)
+   case 'listPaymentReviews':{
+    const reviews=await this.orders.paymentReviews(tenantId)
+    const customers=new Map(await Promise.all([...new Set(reviews.map(review=>review.order.customerId))].map(async id=>[id,await this.commercial.getCustomerDetail(tenantId,id)] as const)))
+    return reviews.map(review=>({...review,customer:customers.get(review.order.customerId)?customer(customers.get(review.order.customerId)!.customer):null}))
+   }
+   case 'getCatalogSnapshot': throw new Error('Canonical catalog snapshot must be read by the persistent runtime')
+   case 'addCustomerNote':{
+    const owner=humanActor(tenantId,request.actor)
+    if(!request.actor||!['TENANT_OWNER','PLATFORM_OWNER'].includes(owner.role))throw new Error('Human Owner authorization required')
+    const key=requiredString(request.idempotencyKey,'idempotencyKey')
+    return this.commercial.addCommercialNote({tenantId,customerId:requiredString(input.customerId,'customerId'),body:requiredString(input.body,'body'),authorId:owner.actorId,idempotencyKey:key})
+   }
+   case 'resolveEscalation':{
+    const owner=humanActor(tenantId,request.actor)
+    if(!request.actor||!['TENANT_OWNER','PLATFORM_OWNER'].includes(owner.role))throw new Error('Human Owner authorization required')
+    const resolution=requiredString(input.resolution,'resolution')
+    if(resolution.length>4000)throw new Error('Resolution exceeds allowed length')
+    return this.supervisor.resolve(tenantId,requiredString(input.escalationId,'escalationId'),{actorId:owner.actorId,resolution,idempotencyKey:requiredString(request.idempotencyKey,'idempotencyKey')})
+   }
    case 'listCustomers': return this.commercial.listCustomers(tenantId)
    case 'listOpportunities': return this.commercial.listOpportunities(tenantId)
    case 'listExceptions': return this.supervisor.snapshot(tenantId)

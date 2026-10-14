@@ -14,7 +14,7 @@ export interface Customer extends TenantScoped, Timestamped {
   lastPurchaseAt?: string
 }
 
-export type CustomerIdentityChannel = 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'WEB' | 'OTHER'
+export type CustomerIdentityChannel = 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'WEB' | 'TIKTOK' | 'OTHER'
 export interface CustomerIdentity extends TenantScoped {
   id: EntityId
   customerId: EntityId
