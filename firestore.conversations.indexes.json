@@ -1,0 +1,741 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "receivedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "conversationId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "receivedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "conversationId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLive",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "inboundId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "mode",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "channel",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastActivityAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "receivedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "conversationId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "receivedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "conversationId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kind",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "chopifyWhatsAppLivePreview",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "inboundId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
