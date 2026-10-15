@@ -8,7 +8,7 @@ export type PercentageType = 'MARKUP_ON_COST' | 'GROSS_MARGIN_ON_SALE_PRICE'
 export interface ProductImage { url: string; alt: string }
 export interface FlatSizeRow { size: string; measurementsCm: Record<string, number> }
 export interface FlatSizeGuide { measurement: 'FLAT_GARMENT_CM'; instructions: string; blouse?: readonly FlatSizeRow[]; trousers?: readonly FlatSizeRow[] }
-export interface CommerceProductVariant { id: EntityId; sku: string; color: string | null; status: ProductStatus; visibility: ProductVisibility; images: readonly ProductImage[]; stock: number | null; importedStock?: number | null; initialStockBySize?: Readonly<Record<string, number | null>>; fulfillmentMode?: FulfillmentMode; salePriceCents?: number | null; promotionalPriceCents?: number | null; available?: boolean; sizes?: readonly string[]; size?: string; minimumStock?: number | null }
+export interface CommerceProductVariant { id: EntityId; sku: string; color: string | null; pantsType?: string | null; inventoryVerified?: boolean; status: ProductStatus; visibility: ProductVisibility; images: readonly ProductImage[]; stock: number | null; importedStock?: number | null; initialStockBySize?: Readonly<Record<string, number | null>>; fulfillmentMode?: FulfillmentMode; salePriceCents?: number | null; promotionalPriceCents?: number | null; available?: boolean; sizes?: readonly string[]; size?: string; minimumStock?: number | null }
 export interface CommerceProduct extends TenantScoped {
   id: EntityId; sku: string; slug: string; name: string; description: string; commercialSummary: string; category: string
   status: ProductStatus; visibility: ProductVisibility; fulfillmentMode: FulfillmentMode; pricingStatus: PricingStatus

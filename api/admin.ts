@@ -13,11 +13,11 @@ const runtime = new PersistentCommerceRuntime(new FirestoreCommerceStateStore())
 const tenantIds = Object.keys(tenantDefinitions) as Array<keyof typeof tenantDefinitions>
 const allowed = new Set<CommerceGatewayOperation>([
   'listProducts', 'syncFloesCatalog', 'updateProduct', 'previewCatalogImport', 'importCatalog', 'ownerDashboard', 'listOrders',
-  'getOrderDetail', 'listPaymentReviews', 'approvePayment', 'rejectPaymentProof',
+  'getOrderDetail', 'listPaymentReviews', 'approvePayment', 'rejectPaymentProof', 'setShippingQuote',
   'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered',
-  'listCustomers', 'listOpportunities', 'listExceptions', 'getCatalogSnapshot', 'addCustomerNote', 'resolveEscalation', 'listOrderActivities',
+  'listCustomers', 'listOpportunities', 'listExceptions', 'getCatalogSnapshot', 'addCustomerNote', 'resolveEscalation', 'listOrderActivities', 'recordOrderFollowUp',
 ])
-const mutations = new Set(['syncFloesCatalog', 'updateProduct', 'importCatalog', 'approvePayment', 'rejectPaymentProof', 'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered','addCustomerNote','resolveEscalation'])
+const mutations = new Set(['syncFloesCatalog', 'updateProduct', 'importCatalog', 'approvePayment', 'rejectPaymentProof', 'setShippingQuote', 'startPreparation', 'markReady', 'dispatchOrder', 'markDelivered','recordOrderFollowUp','addCustomerNote','resolveEscalation'])
 const json = (res: Response, status: number, body: unknown) => {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json')

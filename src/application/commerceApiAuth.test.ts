@@ -29,13 +29,14 @@ describe('Commerce API authorization boundary',()=>{
    expect(execute).toHaveBeenCalledWith(expect.objectContaining({actor:{actorId:'service-owner:tenant-floes',role:'TENANT_OWNER',tenantId:'tenant-floes'}}))
   }finally{execute.mockRestore()}
  })
- it('allows delivery and follow-up through Commerce automation credentials',async()=>{
+ it('allows delivery through Commerce automation but reserves post-sale follow-up for Owner',async()=>{
   const execute=vi.spyOn(PersistentCommerceRuntime.prototype,'execute').mockResolvedValue({})
   try{
-   for(const operation of ['updateOrderDelivery','recordOrderFollowUp'] as const){
-    expect((await invoke({'x-chopify-tenant-id':'tenant-floes',authorization:'Bearer commerce-test'},operation)).status).toBe(200)
-   }
+   expect((await invoke({'x-chopify-tenant-id':'tenant-floes',authorization:'Bearer commerce-test'},'updateOrderDelivery')).status).toBe(200)
+   expect((await invoke({'x-chopify-tenant-id':'tenant-floes',authorization:'Bearer commerce-test'},'recordOrderFollowUp')).status).toBe(401)
+   expect((await invoke({'x-chopify-tenant-id':'tenant-floes',authorization:'Bearer operations-test'},'recordOrderFollowUp')).status).toBe(200)
    expect(execute).toHaveBeenCalledWith(expect.objectContaining({actor:{actorId:'ganobot-commerce',role:'AUTOMATION',tenantId:'tenant-floes'}}))
+   expect(execute).toHaveBeenCalledWith(expect.objectContaining({actor:{actorId:'chopify-operations',role:'TENANT_OWNER',tenantId:'tenant-floes'}}))
   }finally{execute.mockRestore()}
  })
  it('accepts dedicated Preview E2E credentials only in Preview',async()=>{

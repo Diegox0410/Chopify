@@ -57,6 +57,20 @@ async function createStockOrder(app: ReturnType<typeof setup>, key = 'create-1',
 beforeEach(() => { now = '2026-09-27T12:00:00.000Z' })
 
 describe('H3 application order creation and commercial snapshots', () => {
+  it('requires an Owner quote, accepts only its current version and synchronizes the authoritative payment total', async () => {
+    const app = setup()
+    const order = await createStockOrder(app, 'quote-order-create')
+    await app.orders.updateOrderDelivery('tenant-mg', order.id, order.customerId, { deliveryAddress: { name: 'Cliente sintético', phone: '0000000000', city: 'Quito', province: 'Pichincha', address: 'Dirección de prueba' } }, tenantOwner)
+    await expect(app.orders.submitPaymentProof({ tenantId: 'tenant-mg', orderId: order.id, idempotencyKey: 'quote-proof-before', actor: tenantOwner })).rejects.toThrow(/accepted shipping quote/i)
+    const quote = await app.orders.setShippingQuote({ tenantId: 'tenant-mg', orderId: order.id, amountCents: 2500, expectedVersion: 0, idempotencyKey: 'quote-owner-set-1', actor: tenantOwner })
+    expect(quote.shippingQuote).toMatchObject({ status: 'QUOTED', amountCents: 2500, version: 1 })
+    await expect(app.orders.acceptShippingQuote({ tenantId: 'tenant-mg', orderId: order.id, customerId: order.customerId, expectedVersion: 0, idempotencyKey: 'quote-customer-stale', actor: tenantOwner })).rejects.toThrow(/stale/i)
+    const accepted = await app.orders.acceptShippingQuote({ tenantId: 'tenant-mg', orderId: order.id, customerId: order.customerId, expectedVersion: 1, idempotencyKey: 'quote-customer-accept', actor: tenantOwner })
+    const detail = await app.orders.getOrderDetail('tenant-mg', order.id)
+    expect(accepted).toMatchObject({ shippingTotalCents: 2500, grandTotalCents: 12500, shippingQuote: { status: 'ACCEPTED', version: 1 } })
+    expect(detail?.payment.amountCents).toBe(12500)
+    expect(await app.orders.acceptShippingQuote({ tenantId: 'tenant-mg', orderId: order.id, customerId: order.customerId, expectedVersion: 1, idempotencyKey: 'quote-customer-accept', actor: tenantOwner })).toEqual(accepted)
+  })
   it('creates order, UNPAID payment and ACTIVE STOCK reservation', async () => {
     const app = setup()
     const order = await createStockOrder(app)

@@ -103,6 +103,25 @@ test('scheduled worker refuses dispatch until explicitly enabled', async () => {
   assert.equal(dispatches, 0)
 })
 
+test('manual synthetic worker is authenticated, Preview-only, and never initializes a real transport', async () => {
+  const env = { VERCEL_ENV: 'preview', CHANNEL_OUTBOX_TRANSPORT: 'synthetic', CHANNEL_OUTBOX_ENABLED: 'true', CRON_SECRET: 'test-cron-secret' }
+  const seen = []
+  const handler = createChannelOutboxWorkerHandler({ environment: env,
+    dispatch: async input => { seen.push(input); return [{ id: 'synthetic-row', status: (await input.transport({ outboxId: 'synthetic-row' })).status }] },
+    createTransport: () => { throw new Error('real transport must not be created') },
+    legacyTenants: () => { throw new Error('legacy provider dispatch must be skipped') },
+  })
+  assert.equal((await invoke(handler, { method: 'GET', headers: { authorization: 'Bearer test-cron-secret' } })).status, 405)
+  assert.equal((await invoke(handler, { method: 'POST', headers: {} })).status, 401)
+  const response = await invoke(handler, { method: 'POST', headers: { authorization: 'Bearer test-cron-secret' } })
+  assert.equal(response.status, 200)
+  assert.equal(response.body.transport, 'SYNTHETIC_PREVIEW')
+  assert.deepEqual(response.body.statuses, { SENT: 1 })
+  assert.equal(seen.length, 1)
+  const productionGuard = createChannelOutboxWorkerHandler({ environment: { ...env, VERCEL_ENV: 'production' }, dispatch: async () => { throw new Error('must not dispatch') } })
+  assert.equal((await invoke(productionGuard, { method: 'POST', headers: { authorization: 'Bearer test-cron-secret' } })).status, 403)
+})
+
 test('scheduler sends legacy WhatsApp rows only for explicitly active tenant channels', async () => {
   const env = { CRON_SECRET: 'test-cron-secret', CHANNEL_OUTBOX_ENABLED: 'true',
     CHOPIFY_WHATSAPP_CHANNELS_JSON: JSON.stringify([{ tenantId: 'tenant-floes', phoneNumberId: '123456789', accessTokenEnv: 'META_TEST_TOKEN', status: 'ACTIVE' }]) }

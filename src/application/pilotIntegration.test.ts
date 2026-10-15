@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
 import { createTenantCommerceState, MemoryCommerceStateStore, PersistentCommerceRuntime } from "./commerceRuntime";
 import chopifyCommerceHandler from "../../api/commerce";
 import chopifyCatalogHandler from "../../api/catalog";
@@ -11,7 +12,7 @@ import floesOwnerHandler from "../../../../floes-commerce/api/owner";
 import { mapChopifyCatalog } from "../../../../floes-commerce/src/services/chopify/catalog";
 import { ownerOperation } from "../../../../floes-commerce/src/services/chopify/owner";
 
-const ownerToken = "isolated-floes-owner-token";
+let ownerToken = "isolated-floes-owner-token";
 vi.mock("../../../../floes-commerce/src/services/firebase/firebase", () => ({
   auth: { currentUser: { getIdToken: async () => ownerToken } },
 }));
@@ -21,7 +22,13 @@ vi.mock("../infrastructure/firestoreCommerceStateStore.js", () => ({
     save(tenant: string, state: unknown, expectedVersion: string | null) { return (globalThis as any).__floesPilotStore.save(tenant, state, expectedVersion); }
   },
 }));
-vi.mock("../../../../floes-commerce/api/_lib/firebaseAuth", () => ({ requireFloesOwner: async () => undefined }));
+vi.mock("../../../../floes-commerce/api/_lib/firebaseAuth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../floes-commerce/api/_lib/firebaseAuth")>();
+  return { requireFloesOwner: async (request: Parameters<typeof actual.requireFloesOwner>[0]) => {
+    if (process.env.FIREBASE_AUTH_EMULATOR_HOST) return actual.requireFloesOwner(request);
+    return undefined;
+  } };
+});
 
 const tenantId = "tenant-floes";
 const assistantId = "commerce-assistant";
@@ -75,14 +82,15 @@ function responseCapture() {
 
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
 
-describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
+describe("FLOES commercial pilot integration (isolated state adapter)", () => {
   const originalFetch = globalThis.fetch;
-  const envKeys = ["CHOPIFY_BASE_URL", "CHOPIFY_VERCEL_PROTECTION_BYPASS_SECRET", "FLOES_WHATSAPP_NUMBER", "VERCEL_ENV", "CHOPIFY_COMMERCE_ALLOWED_TENANTS", "CHOPIFY_PUBLIC_CATALOG_ALLOWED_TENANTS", "CHOPIFY_OPERATIONS_ALLOWED_TENANTS", "CHOPIFY_COMMERCE_API_TOKEN", "CHOPIFY_OWNER_API_TOKEN_FLOES", "CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN", "CHOPIFY_PREVIEW_E2E_OWNER_TOKEN_FLOES", "CHOPIFY_COMMERCE_STATE_COLLECTION"];
+  const envKeys = ["CHOPIFY_BASE_URL", "CHOPIFY_VERCEL_PROTECTION_BYPASS_SECRET", "FLOES_WHATSAPP_NUMBER", "VERCEL_ENV", "CHOPIFY_COMMERCE_ALLOWED_TENANTS", "CHOPIFY_PUBLIC_CATALOG_ALLOWED_TENANTS", "CHOPIFY_OPERATIONS_ALLOWED_TENANTS", "CHOPIFY_COMMERCE_API_TOKEN", "CHOPIFY_OPERATIONS_API_TOKEN", "CHOPIFY_OWNER_API_TOKEN_FLOES", "CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN", "CHOPIFY_PREVIEW_E2E_OWNER_TOKEN_FLOES", "CHOPIFY_COMMERCE_STATE_COLLECTION", "PILOT_FIRESTORE_EMULATOR", "FIRESTORE_EMULATOR_HOST", "FIREBASE_PROJECT_ID", "FIREBASE_AUTH_EMULATOR_HOST", "FLOES_OWNER_UID"];
   const previousEnv = new Map<string, string | undefined>();
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
     delete (globalThis as any).__floesPilotStore;
+    ownerToken = "isolated-floes-owner-token";
     for (const key of envKeys) {
       const value = previousEnv.get(key);
       if (value === undefined) delete process.env[key];
@@ -99,7 +107,32 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
       expect(condition, `stage ${stage}: ${name}`).toBe(true);
     };
 
-    const memoryStore = new MemoryCommerceStateStore();
+    let memoryStore: MemoryCommerceStateStore | InstanceType<NonNullable<(typeof import('../infrastructure/firestoreCommerceStateStore.js'))['FirestoreCommerceStateStore']>>;
+    const emulatorPilot = process.env.PILOT_FIRESTORE_EMULATOR === '1';
+    if (emulatorPilot) {
+      if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8081' || process.env.FIREBASE_PROJECT_ID !== 'demo-floes-sandbox') {
+        throw new Error('Firebase-backed pilot is restricted to demo-floes-sandbox at loopback 127.0.0.1:8081');
+      }
+      if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099') throw new Error('Firebase-backed pilot requires the loopback Auth Emulator at 127.0.0.1:9099');
+      const authEmail = `owner-${randomUUID()}@sandbox.floes.invalid`;
+      const authPassword = `${randomUUID()}A1!`;
+      const authOrigin = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
+      const signUp = await originalFetch(`${authOrigin}/accounts:signUp?key=fake-api-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: authEmail, password: authPassword, returnSecureToken: true }) });
+      if (!signUp.ok) throw new Error(`Firebase Auth Emulator Owner signup failed (${signUp.status})`);
+      const created = await signUp.json() as { localId?: string };
+      if (!created.localId) throw new Error('Firebase Auth Emulator did not return an Owner UID');
+      const signIn = await originalFetch(`${authOrigin}/accounts:signInWithPassword?key=fake-api-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: authEmail, password: authPassword, returnSecureToken: true }) });
+      if (!signIn.ok) throw new Error(`Firebase Auth Emulator Owner sign-in failed (${signIn.status})`);
+      const session = await signIn.json() as { idToken?: string };
+      if (!session.idToken) throw new Error('Firebase Auth Emulator did not return an Owner session');
+      process.env.FLOES_OWNER_UID = created.localId;
+      ownerToken = session.idToken;
+      const actual = await vi.importActual<typeof import('../infrastructure/firestoreCommerceStateStore.js')>('../infrastructure/firestoreCommerceStateStore.js');
+      process.env.CHOPIFY_COMMERCE_STATE_COLLECTION = process.env.CHOPIFY_COMMERCE_STATE_COLLECTION?.trim() || `chopifyPilotE2e${Date.now()}`;
+      memoryStore = new actual.FirestoreCommerceStateStore(process.env);
+    } else {
+      memoryStore = new MemoryCommerceStateStore();
+    }
     const seed = createTenantCommerceState(tenantId);
     const fixtureTime = "2026-10-13T00:00:00.000Z";
     seed.commercial.customers.push({ id: "customer-test-only", tenantId, name: "Cliente aislado", phone: "593000000099", status: "LEAD", createdAt: fixtureTime, updatedAt: fixtureTime });
@@ -112,6 +145,7 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
 
     const mockFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (emulatorPilot && (url.startsWith('http://127.0.0.1:8081/') || url.startsWith('http://127.0.0.1:9099/'))) return originalFetch(input, init);
       if (url.startsWith("https://chopify-isolated.test/api/catalog?tenant=tenant-floes")) {
         expect(init?.method ?? "GET").toBe("GET");
         expect(new Headers(init?.headers).get("x-vercel-protection-bypass")).toBe("isolated-preview-bypass-fixture");
@@ -149,10 +183,11 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
     process.env.CHOPIFY_PUBLIC_CATALOG_ALLOWED_TENANTS = tenantId;
     process.env.CHOPIFY_OPERATIONS_ALLOWED_TENANTS = tenantId;
     process.env.CHOPIFY_COMMERCE_API_TOKEN = testBearer;
+    process.env.CHOPIFY_OPERATIONS_API_TOKEN = testBearer;
     process.env.CHOPIFY_OWNER_API_TOKEN_FLOES = ownerToken;
     process.env.CHOPIFY_PREVIEW_E2E_COMMERCE_TOKEN = testBearer;
     process.env.CHOPIFY_PREVIEW_E2E_OWNER_TOKEN_FLOES = ownerToken;
-    process.env.CHOPIFY_COMMERCE_STATE_COLLECTION = "chopifyCommerceRuntimePilotTest";
+    if (!emulatorPilot) process.env.CHOPIFY_COMMERCE_STATE_COLLECTION = "chopifyCommerceRuntimePilotTest";
     globalThis.fetch = mockFetch as typeof fetch;
 
     // FLOES public handler + Chopify catalog contract + storefront mapper.
@@ -295,13 +330,11 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
     expect(reply.reply).toMatch(/figura entregado/i);
     mark(15, "Admin marks delivery; GanoBot reads same order", true, selection.orderId);
 
-    turn = conversation.catalogConversationCall("Ya recibí mi pedido y estoy contenta", history({ ...selection, orderStatus: "delivered" }));
-    expect(turn.name).toBe("commerce.recordOrderFollowUp");
-    const followUp = await runTool(catalogTools, turn.name, turn.arguments);
-    reply = conversation.catalogConversationResponse(followUp, "Ya recibí mi pedido y estoy contenta", selection);
-    expect(followUp.order.orderId).toBe(selection.orderId);
-    expect(reply.reply).toMatch(/registramos tu seguimiento/i);
-    mark(16, "GanoBot post-sale follow-up records same order", true, selection.orderId);
+    await ownerOperation("recordOrderFollowUp", { orderId: selection.orderId, customerId: delivered.customerId, outcome: "SATISFIED", note: "Seguimiento sintético confirmado por Owner" }, true);
+    const followedUp = await runTool(commerceTools, COMMERCE_TOOL_IDS.getOrderStatus, { orderId: selection.orderId });
+    expect(followedUp.orderId).toBe(selection.orderId);
+    expect(followedUp.followUp).toMatchObject({ status: "FOLLOW_UP", outcome: "SATISFIED" });
+    mark(16, "Owner records post-sale; GanoBot reads persisted follow-up", true, selection.orderId);
 
     const finalOrder = await runtime.execute({ operation: "getOrderDetail", tenantId, input: { orderId: selection.orderId }, actor: { actorId: "test-audit", role: "TENANT_OWNER", tenantId } }) as any;
     expect(finalOrder.order.id).toBe(selection.orderId);
@@ -310,8 +343,18 @@ describe("FLOES commercial pilot integration (isolated memory adapter)", () => {
     expect(finalOrder.payment.id).toBe(proof.paymentId);
     expect(finalOrder.proofs[0].id).toBe(proof.proofId);
     expect(finalOrder.order.followUp.outcome).toBe("SATISFIED");
-    expect((await memoryStore.load(tenantId))?.state.orders.orders).toHaveLength(1);
-    mark(17, "Final records and state agree in isolated memory", true, selection.orderId);
+    const saved = await memoryStore.load(tenantId);
+    expect(saved?.state.orders.orders).toHaveLength(1);
+    if (emulatorPilot) {
+      const fresh = await vi.importActual<typeof import('../infrastructure/firestoreCommerceStateStore.js')>('../infrastructure/firestoreCommerceStateStore.js');
+      const recovered = await new fresh.FirestoreCommerceStateStore(process.env).load(tenantId);
+      console.info(JSON.stringify({ recoveryCollection: process.env.CHOPIFY_COMMERCE_STATE_COLLECTION, expectedOrderId: selection.orderId, recoveredOrderIds: recovered?.state.orders.orders.map(order => ({ id: order.id, status: order.fulfillmentStatus })) ?? [] }));
+      expect(recovered?.state.orders.orders.find(order => order.id === selection.orderId)?.fulfillmentStatus).toBe('DELIVERED');
+      expect(recovered?.state.orders.payments.some(payment => payment.id === proof.paymentId && payment.status === 'PAID')).toBe(true);
+      expect(recovered?.state.orders.proofs.some(item => item.id === proof.proofId)).toBe(true);
+    }
+    mark(17, emulatorPilot ? "Firestore Emulator order survives fresh store recovery" : "Final records and state agree in isolated memory", true, selection.orderId);
+    console.info(JSON.stringify({ acceptance: 'FLOES_SYNTHETIC_E2E', stateStore: emulatorPilot ? 'FIRESTORE_EMULATOR' : 'MEMORY', collection: process.env.CHOPIFY_COMMERCE_STATE_COLLECTION, tenantId, orderId: selection.orderId, paymentId: proof.paymentId, proofId: proof.proofId, status: 'DELIVERED', followUp: 'SATISFIED' }));
 
     expect(stageResults).toHaveLength(17);
     expect(stageResults.every(item => item.status === "PASS")).toBe(true);

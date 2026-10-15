@@ -16,6 +16,18 @@ export function parseMetaProofReference(reference) {
   return match ? { phoneNumberId: match[1], mediaId: match[2] } : null
 }
 
+const pdfEscape = value => String(value).replace(/[^\x20-\x7e]/g, '?').replace(/[\\()]/g, '\\$&')
+function syntheticReceiptPdf(order, payment) {
+  const lines = ['COMPROBANTE FICTICIO - SANDBOX', `Pedido: ${order.id}`, `Importe registrado: ${(payment.amountCents / 100).toFixed(2)} ${payment.currency}`, 'Sin transferencia bancaria real. Solo prueba local/Preview.']
+  const stream = `BT /F1 15 Tf 50 760 Td (${pdfEscape(lines[0])}) Tj /F1 11 Tf 0 -34 Td (${pdfEscape(lines[1])}) Tj 0 -24 Td (${pdfEscape(lines[2])}) Tj 0 -24 Td (${pdfEscape(lines[3])}) Tj ET`
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`]
+  let document = '%PDF-1.4\n'; const offsets = [0]
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(document)); document += `${index + 1} 0 obj\n${object}\nendobj\n` })
+  const xrefOffset = Buffer.byteLength(document)
+  document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+  return Buffer.from(document)
+}
+
 async function limitedBytes(response, maxBytes) {
   const reader = response.body?.getReader()
   if (!reader) return Buffer.alloc(0)
@@ -40,6 +52,9 @@ export async function readPrivateProof({ tenantId, proofId, runtimeClient, env =
   const review = Array.isArray(reviews) ? reviews.find(item => item?.proof?.id === proofId) : null
   if (!review || review.proof.tenantId !== tenantId || review.order?.tenantId !== tenantId || review.payment?.tenantId !== tenantId || review.proof.orderId !== review.order.id || review.proof.paymentId !== review.payment.id || review.payment.orderId !== review.order.id) return { status: 404 }
   const media = parseMetaProofReference(review.proof.assetReference)
+  if (review.proof.assetReference?.startsWith('sandbox-test://transfer/') && review.payment.method === 'MANUAL_TRANSFER_TEST') {
+    return { status: 200, contentType: 'application/pdf', bytes: syntheticReceiptPdf(review.order, review.payment) }
+  }
   if (!media) return { status: 422 }
   const channel = channels().find(item => item.tenantId === tenantId && item.externalChannelId === media.phoneNumberId)
   const accessToken = channel && env[channel.accessTokenEnv]

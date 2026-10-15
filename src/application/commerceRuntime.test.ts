@@ -76,6 +76,7 @@ describe('Persistent Commerce Runtime production state',()=>{
   const restart=new PersistentCommerceRuntime(store)
   const detail=await restart.execute(req('getOrderDetail',{orderId:order.orderId},'life-final','tenant-mg')) as {order:{orderStatus:string;followUp:{outcome:string};fulfillmentDetails:{deliveryMode:string}}}
   expect(detail.order).toMatchObject({orderStatus:'COMPLETED',fulfillmentDetails:{deliveryMode:'PICKUP'},followUp:{outcome:'SATISFIED'}})
+  expect(await restart.execute(req('getOrderStatus',{orderId:order.orderId},'life-public-status','tenant-mg'))).toMatchObject({status:'delivered',paymentStatus:'approved',fulfillmentStatus:'delivered',followUp:{status:'FOLLOW_UP',outcome:'SATISFIED'}})
  })
  it('batches a read model through one Firestore state load per tenant',async()=>{
   const records=new MemoryCommerceStateStore();let loads=0,saves=0

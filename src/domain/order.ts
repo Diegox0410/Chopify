@@ -27,10 +27,12 @@ export interface ManagedOrderSnapshot { managed: boolean; managedBy: ManagedBy; 
 export interface Order extends TenantScoped, Timestamped, OrderTotals {
   id: EntityId; externalOrderId?: string; customerId: EntityId; opportunityId?: EntityId; conversationId?: EntityId
   currency: CurrencyCode; items: readonly OrderItemSnapshot[]
+  paymentMethod?: 'MANUAL_TRANSFER_TEST'
   orderStatus: OrderStatus; paymentStatus: PaymentStatus; fulfillmentStatus: FulfillmentStatus
   attributionSnapshot: Readonly<Attribution>; commercialAgreementSnapshot?: Readonly<CommercialAgreementSnapshot>; managedSnapshot: Readonly<ManagedOrderSnapshot>
   confirmedAt?: ISODateTime; cancelledAt?: ISODateTime; cancellationReason?: string; completedAt?: ISODateTime
   fulfillmentDetails?: FulfillmentDetails
+  shippingQuote?: { status: 'REQUESTED' | 'QUOTED' | 'ACCEPTED'; amountCents?: number; version: number; requestedAt: ISODateTime; quotedAt?: ISODateTime; acceptedAt?: ISODateTime; quotedBy?: EntityId; idempotencyKey?: string }
   followUp?: { status: 'FOLLOW_UP'; outcome: 'RECEIVED' | 'SATISFIED' | 'ISSUE' | 'HUMAN_REQUESTED'; note?: string; recordedAt: ISODateTime }
 }
 export interface PaymentProof extends TenantScoped {
@@ -39,6 +41,7 @@ export interface PaymentProof extends TenantScoped {
 }
 export interface Payment extends TenantScoped, Timestamped {
   id: EntityId; orderId: EntityId; amountCents: number; currency: CurrencyCode; status: PaymentStatus
+  method?: 'MANUAL_TRANSFER_TEST'
   paidAt?: ISODateTime; rejectedAt?: ISODateTime; refundedAt?: ISODateTime; confirmedBy?: EntityId
 }
 export interface DeliveryAddress { name: string; phone: string; city: string; province: string; address: string; reference?: string }

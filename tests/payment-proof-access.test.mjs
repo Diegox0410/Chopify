@@ -29,6 +29,16 @@ test('proof mismatching payment/order or media channel cannot be downloaded', as
   assert.equal((await readPrivateProof({ tenantId, proofId: review.proof.id, runtimeClient: { async execute() { return [review] } }, env, fetcher, channels: () => [] })).status, 503)
   assert.equal(network, 0)
 })
+test('synthetic test receipt is private, generated from the persisted amount, and never calls Meta', async () => {
+  let network = 0
+  const synthetic = { proof: { id: 'proof-sandbox', tenantId, orderId: 'order-sandbox', paymentId: 'payment-sandbox', assetReference: 'sandbox-test://transfer/key-1', reference: 'COMPROBANTE-FICTICIO-SANDBOX' }, order: { id: 'order-sandbox', tenantId }, payment: { id: 'payment-sandbox', tenantId, orderId: 'order-sandbox', method: 'MANUAL_TRANSFER_TEST', amountCents: 2750, currency: 'USD' } }
+  const result = await readPrivateProof({ tenantId, proofId: 'proof-sandbox', runtimeClient: { async execute() { return [synthetic] } }, env, channels, fetcher: async () => { network++; throw new Error('external transport must not run') } })
+  assert.equal(result.status, 200)
+  assert.equal(result.contentType, 'application/pdf')
+  assert.match(result.bytes.toString('latin1'), /COMPROBANTE FICTICIO - SANDBOX/)
+  assert.match(result.bytes.toString('latin1'), /27\.50 USD/)
+  assert.equal(network, 0)
+})
 test('proof download rejects redirects and streams beyond the maximum without exposing provider URLs', async () => {
   const data = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(10 * 1024 * 1024)); controller.enqueue(new Uint8Array(1)); controller.close() } })
   const result = await readPrivateProof({ tenantId, proofId: review.proof.id, runtimeClient: { async execute() { return [review] } }, env, channels, fetcher: async url => String(url).startsWith('https://graph.facebook.com/') ? Response.json({ url: 'https://lookaside.fbsbx.com/private-proof' }) : new Response(data, { headers: { 'content-type': 'application/pdf' } }) })

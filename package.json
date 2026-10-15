@@ -14,6 +14,8 @@
     "estimate:usage": "node scripts/estimate-platform-usage.mjs",
     "pilot:sandbox": "node --import tsx scripts/pilot-sandbox.mjs",
     "sync:floes-catalog": "node --import tsx scripts/sync-floes-catalog.ts",
+    "build:floes-base-combinations": "node --import tsx scripts/build-floes-base-combinations.mjs",
+    "import:floes-combinations:emulator": "node scripts/import-floes-combinations-emulator.mjs",
     "test:watch": "vitest"  },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

@@ -8,7 +8,7 @@ import { ConversationDetailPage } from '../features/conversations/ConversationDe
 import { CustomersPage } from '../features/customers/CustomersPage'
 import { CustomerDetailPage } from '../features/customers/CustomerDetailPage'
 import { OperationalEmptyPage } from '../features/shell/OperationalEmptyPage'
-import { IntegrationsPage, RealBusinessesPage, RealDashboardPage, RealExceptionsPage, RealFulfillmentPage, RealOpportunitiesPage, RealOrdersPage, RealPaymentReviewPage } from '../features/platform/AdminCenters'
+import { IntegrationsPage, RealBusinessesPage, RealDashboardPage, RealExceptionsPage, RealFulfillmentPage, RealOpportunitiesPage, RealOrdersPage, RealPaymentReviewPage, RealPostSalePage } from '../features/platform/AdminCenters'
 import { OwnerPanelPage } from '../features/owner/OwnerPanelPage'
 import { LoginPage } from '../auth/LoginPage'
 import { RequireAuth } from '../auth/RequireAuth'
@@ -22,7 +22,7 @@ import '../styles/h9-whatsapp.css'
 import '../styles/catalog.css'
 
 export function App(){
-  const reserved=new Set(['/products','/conversations','/businesses','/customers','/opportunities','/orders','/payments/review','/fulfillment','/exceptions','/integrations'])
+  const reserved=new Set(['/products','/conversations','/businesses','/customers','/opportunities','/orders','/payments/review','/fulfillment','/exceptions','/integrations','/post-sale'])
   const empty=navigation
     .flatMap(section=>section.items)
     .filter(item=>item.path!=='/'&&!reserved.has(item.path))
@@ -59,6 +59,7 @@ export function App(){
         <Route path="fulfillment" element={<RealFulfillmentPage/>}/>
         <Route path="exceptions" element={<RealExceptionsPage/>}/>
         <Route path="integrations" element={<IntegrationsPage/>}/>
+        <Route path="post-sale" element={<RealPostSalePage/>}/>
 
         {empty.map(item=>
           <Route

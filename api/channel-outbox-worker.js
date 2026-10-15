@@ -28,16 +28,21 @@ export function createChannelOutboxWorkerHandler({ environment = process.env, di
     const secret = environment.CRON_SECRET || environment.CHANNEL_OUTBOX_CRON_SECRET
     if (!validSecret(request, secret)) return json(response, 401, { ok: false, error: 'UNAUTHORIZED' })
     if (environment.CHANNEL_OUTBOX_ENABLED !== 'true') return json(response, 503, { ok: false, error: 'OUTBOX_WORKER_DISABLED' })
+    const syntheticOnly = environment.CHANNEL_OUTBOX_TRANSPORT === 'synthetic'
+    if (syntheticOnly && environment.VERCEL_ENV !== 'preview') return json(response, 403, { ok: false, error: 'SYNTHETIC_TRANSPORT_PREVIEW_ONLY' })
+    if (syntheticOnly && request.method !== 'POST') return json(response, 405, { ok: false, error: 'SYNTHETIC_TRANSPORT_MANUAL_POST_ONLY' })
     let senders
-    try { senders = configuredChannelSenders(environment) }
+    try { senders = syntheticOnly ? [] : configuredChannelSenders(environment) }
     catch { return json(response, 503, { ok: false, error: 'CHANNEL_CONFIGURATION_INVALID' }) }
     let whatsappTenants
-    try { whatsappTenants = legacyTenants(environment, { activeOnly: true }).filter(tenantId => tenantDefinitions[tenantId]?.status === 'ACTIVE') }
+    try { whatsappTenants = syntheticOnly ? [] : legacyTenants(environment, { activeOnly: true }).filter(tenantId => tenantDefinitions[tenantId]?.status === 'ACTIVE') }
     catch { return json(response, 503, { ok: false, error: 'WHATSAPP_CONFIGURATION_INVALID' }) }
-    if (!senders.length && !whatsappTenants.length) return json(response, 200, { ok: true, processed: 0, statuses: {} })
-    const transport = createTransport({ environment, now })
+    if (!syntheticOnly && !senders.length && !whatsappTenants.length) return json(response, 200, { ok: true, processed: 0, statuses: {} })
+    const transport = syntheticOnly
+      ? { async send(item) { return { status: 'SENT', providerMessageId: `synthetic-preview-${String(item?.outboxId || item?.id || randomUUID()).slice(0, 160)}` } } }
+      : createTransport({ environment, now })
     const outcomes = []
-    const tenantIds = [...new Set(senders.map(sender => sender.tenantId))]
+    const tenantIds = (syntheticOnly ? ['tenant-floes'] : [...new Set(senders.map(sender => sender.tenantId))])
       .filter(tenantId => tenantDefinitions[tenantId]?.status === 'ACTIVE')
     try {
       for (const tenantId of tenantIds) {
@@ -55,7 +60,7 @@ export function createChannelOutboxWorkerHandler({ environment = process.env, di
         counts[item.status] = (counts[item.status] || 0) + 1
         return counts
       }, {})
-      return json(response, 200, { ok: true, processed: outcomes.length, statuses })
+      return json(response, 200, { ok: true, processed: outcomes.length, statuses, ...(syntheticOnly ? { transport: 'SYNTHETIC_PREVIEW' } : {}) })
     } catch {
       return json(response, 503, { ok: false, error: 'OUTBOX_DISPATCH_FAILED' })
     }

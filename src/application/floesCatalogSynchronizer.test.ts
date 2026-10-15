@@ -152,8 +152,21 @@ describe('FLOES safe catalog synchronizer', () => {
     expect(view.available).toBe(false)
     expect(view.variants).toHaveLength(13)
     expect(view.variants.every(variant => variant.available === false && variant.pricingStatus === 'READY')).toBe(true)
+    expect(view.variants.every(variant => variant.inventoryVerified === false && variant.pantsType === null)).toBe(true)
     expect(view.variants.every(variant => variant.sizeAvailability.every(size => size.availabilityStatus === 'NOT_CONFIGURED'))).toBe(true)
     expect(view.variants.every(variant => variant.images.length === 0)).toBe(true)
+  })
+
+  it('passes pants type and only confirms stock when every applicable size is verified', async () => {
+    const { source, existing } = fixture()
+    const prepared = prepareFloesCatalogSync(source, existing)
+    const product = prepared.products.find(item => item.slug === 'maemi')!
+    const colorVariant = { ...product.variants[0], pantsType: 'Jogger', inventoryVerified: true, available: true }
+    const view = await commerceCatalogView({ ...product, variants: [colorVariant] }, {
+      getAvailability: async (_tenant, _product, _variant, size) => size ? 2 : 10,
+    } as unknown as BusinessCommerceAdapter)
+    expect(view.variants[0]).toMatchObject({ pantsType: 'Jogger', inventoryVerified: true, available: true, sku: colorVariant.sku })
+    expect(view.variants[0].sizeAvailability.every(size => size.availableQuantity === 2)).toBe(true)
   })
 
   it('refuses mismatched existing SKU data and archived official products', () => {

@@ -23,6 +23,8 @@ export type CommerceGatewayOperation =
   | 'createOrUpdateCustomer'
   | 'createOpportunity'
   | 'createOrderDraft'
+  | 'setShippingQuote'
+  | 'acceptShippingQuote'
   | 'attachPaymentProof'
   | 'getOrderStatus'
   | 'updateOrderDelivery'
@@ -96,6 +98,10 @@ const status=(order:Order)=>({
   order.fulfillmentStatus==='READY'?'ready-for-dispatch':order.fulfillmentStatus==='PREPARING'?'preparing':'unfulfilled',
  courier:order.fulfillmentDetails?.courier,trackingCode:order.fulfillmentDetails?.trackingCode,
  total:money(order.grandTotalCents,order.currency),
+ paymentMethod:order.paymentMethod,
+ totalStatus:order.shippingQuote?.status==='ACCEPTED'?'definitive':'provisional',
+ shippingQuote:order.shippingQuote?{status:order.shippingQuote.status,amount:order.shippingQuote.amountCents===undefined?undefined:money(order.shippingQuote.amountCents,order.currency),version:order.shippingQuote.version}:undefined,
+ followUp:order.followUp?{status:order.followUp.status,outcome:order.followUp.outcome,recordedAt:order.followUp.recordedAt}:undefined,
 })
 
 export class CommerceGateway {
@@ -244,16 +250,17 @@ export class CommerceGateway {
     if(opportunity.status==='OPEN')opportunity=await this.commercial.qualifyOpportunity(tenantId,opportunity.id)
     if(opportunity.status==='QUALIFIED')opportunity=await this.commercial.startOpportunityCart(tenantId,opportunity.id)
     if(opportunity.status==='CART_STARTED')opportunity=await this.commercial.markOpportunityOrderCreated(tenantId,opportunity.id)
-    const order=await this.orders.createOrderFromOpportunity({tenantId,opportunityId:opportunity.id,items,managed:true,managedBy:'AUTOMATION',idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??opportunity.id}:createOrderDraft`,actor:actor(tenantId)})
+    const paymentMethod=input.paymentMethod===undefined?undefined:input.paymentMethod==='MANUAL_TRANSFER_TEST'?'MANUAL_TRANSFER_TEST':(()=>{throw new Error('Unsupported payment method')})()
+    const order=await this.orders.createOrderFromOpportunity({tenantId,opportunityId:opportunity.id,items,paymentMethod,managed:true,managedBy:'AUTOMATION',idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??opportunity.id}:createOrderDraft`,actor:actor(tenantId)})
     return{orderId:order.id,status:'draft',customerId:order.customerId,total:money(order.grandTotalCents,order.currency)}
    }
    case 'attachPaymentProof':{
     const orderId=requiredString(input.orderId,'orderId')
     if(request.actor?.role==='AUTOMATION'){
      const customerId=requiredString(input.customerId,'customerId')
-     const conversationId=requiredString(input.conversationId,'conversationId')
+     const conversationId=optionalString(input.conversationId)
      const order=await this.orders.getOrder(tenantId,orderId)
-     if(!order||order.customerId!==customerId||order.conversationId!==conversationId)throw new Error('Payment proof does not belong to this customer conversation')
+     if(!order||order.customerId!==customerId||(conversationId&&order.conversationId!==conversationId))throw new Error('Payment proof does not belong to this customer order')
     }
     const proof:PaymentProof=await this.orders.submitPaymentProof({tenantId,orderId,reference:optionalString(input.externalReference),assetReference:optionalString(input.proofUrl),idempotencyKey:request.idempotencyKey??`${tenantId}:${request.requestId??orderId}:attachPaymentProof`,actor:actor(tenantId)})
     return{proofId:proof.id,paymentId:proof.paymentId,orderId:proof.orderId,status:'pending_review'}
@@ -262,23 +269,35 @@ export class CommerceGateway {
     const order=await this.orders.getOrder(tenantId,requiredString(input.orderId,'orderId'))
     return order?status(order):undefined
    }
+   case 'setShippingQuote':{
+    const owner=humanActor(tenantId,request.actor);if(!['TENANT_OWNER','PLATFORM_OWNER'].includes(owner.role))throw new Error('Owner authorization required')
+    const amountCents=input.amountCents;const expectedVersion=input.expectedVersion
+    if(typeof amountCents!=='number'||typeof expectedVersion!=='number')throw new Error('Shipping quote amount and version are required')
+    return status(await this.orders.setShippingQuote({tenantId,orderId:requiredString(input.orderId,'orderId'),amountCents,expectedVersion,idempotencyKey:requiredString(request.idempotencyKey,'idempotencyKey'),actor:owner}))
+   }
+   case 'acceptShippingQuote':{
+    const customerId=requiredString(input.customerId,'customerId');const expectedVersion=input.expectedVersion
+    if(typeof expectedVersion!=='number')throw new Error('Shipping quote version is required')
+    return status(await this.orders.acceptShippingQuote({tenantId,orderId:requiredString(input.orderId,'orderId'),customerId,expectedVersion,idempotencyKey:requiredString(request.idempotencyKey,'idempotencyKey'),actor:actor(tenantId)}))
+   }
    case 'updateOrderDelivery':{
     const orderId=requiredString(input.orderId,'orderId');const customerId=requiredString(input.customerId,'customerId')
-    const deliveryMode=requiredString(input.deliveryMode,'deliveryMode')
-    if(!['SERVIENTREGA','PICKUP','LOCAL_DELIVERY'].includes(deliveryMode))throw new Error('Invalid delivery mode')
+    const rawMode=optionalString(input.deliveryMode)
+    if(rawMode&&!['SERVIENTREGA','PICKUP','LOCAL_DELIVERY'].includes(rawMode))throw new Error('Invalid delivery mode')
     let deliveryAddress:NonNullable<Order['fulfillmentDetails']>['deliveryAddress']
-    if(deliveryMode!=='PICKUP'){
+    if(rawMode!=='PICKUP'){
      const raw=input.deliveryAddress
      if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('deliveryAddress is required')
      const address=raw as Record<string,unknown>
      deliveryAddress={name:requiredString(address.name,'deliveryAddress.name'),phone:requiredString(address.phone,'deliveryAddress.phone'),city:requiredString(address.city,'deliveryAddress.city'),province:requiredString(address.province,'deliveryAddress.province'),address:requiredString(address.address,'deliveryAddress.address'),reference:optionalString(address.reference)}
     }
-    return status(await this.orders.updateOrderDelivery(tenantId,orderId,customerId,{deliveryMode:deliveryMode as 'SERVIENTREGA'|'PICKUP'|'LOCAL_DELIVERY',deliveryAddress},actor(tenantId)))
+    return status(await this.orders.updateOrderDelivery(tenantId,orderId,customerId,{...(rawMode?{deliveryMode:rawMode as 'SERVIENTREGA'|'PICKUP'|'LOCAL_DELIVERY'}:{}),...(deliveryAddress?{deliveryAddress}:{})},actor(tenantId)))
    }
    case 'recordOrderFollowUp':{
     const orderId=requiredString(input.orderId,'orderId');const customerId=requiredString(input.customerId,'customerId');const outcome=requiredString(input.outcome,'outcome')
     if(!['RECEIVED','SATISFIED','ISSUE','HUMAN_REQUESTED'].includes(outcome))throw new Error('Invalid follow-up outcome')
-    const order=await this.orders.recordOrderFollowUp(tenantId,orderId,customerId,outcome as 'RECEIVED'|'SATISFIED'|'ISSUE'|'HUMAN_REQUESTED',optionalString(input.note),actor(tenantId))
+    const followActor=request.actor?humanActor(tenantId,request.actor):actor(tenantId)
+    const order=await this.orders.recordOrderFollowUp(tenantId,orderId,customerId,outcome as 'RECEIVED'|'SATISFIED'|'ISSUE'|'HUMAN_REQUESTED',optionalString(input.note),followActor)
     return {...status(order),followUp:order.followUp}
    }
    case 'ownerDashboard': return this.orders.dashboard(tenantId)

@@ -12,14 +12,14 @@ interface CommerceRequestBody{operation?:CommerceGatewayOperation;tenantId?:unkn
 const runtime=new PersistentCommerceRuntime(new FirestoreCommerceStateStore())
 const operations=new Set<CommerceGatewayOperation>([
  'searchProducts','getProductDetails','checkAvailability','createOrUpdateCustomer','createOpportunity','createOrderDraft',
- 'attachPaymentProof','getOrderStatus','requestHumanEscalation','resolveCustomerIdentity','updateOrderDelivery','recordOrderFollowUp',
- 'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
+ 'attachPaymentProof','getOrderStatus','requestHumanEscalation','resolveCustomerIdentity','updateOrderDelivery','recordOrderFollowUp','acceptShippingQuote',
+ 'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered','setShippingQuote',
  'listProducts','syncFloesCatalog','updateProduct','previewCatalogImport','importCatalog',
  'ownerDashboard','listOrders','getOrderDetail','listPaymentReviews',
- 'listCustomers','listOpportunities','listExceptions','getCatalogSnapshot','addCustomerNote','resolveEscalation','listOrderActivities',
+ 'listCustomers','listOpportunities','listExceptions','getCatalogSnapshot','addCustomerNote','resolveEscalation','listOrderActivities','recordOrderFollowUp',
 ])
 const humanOperations=new Set<CommerceGatewayOperation>([
- 'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered',
+ 'approvePayment','rejectPaymentProof','startPreparation','markReady','dispatchOrder','markDelivered','setShippingQuote','recordOrderFollowUp',
  'listProducts','syncFloesCatalog','updateProduct','previewCatalogImport','importCatalog',
  'ownerDashboard','listOrders','getOrderDetail','listPaymentReviews',
  'listCustomers','listOpportunities','listExceptions','getCatalogSnapshot','addCustomerNote','resolveEscalation','listOrderActivities',
@@ -65,6 +65,7 @@ export function createCommerceHandler(dependencies:{runtimeClient?:Pick<Persiste
  if(accessScope!=='owner'&&humanOperations.has(operation)&&!operationsTenant(tenantId,env))return json(res,403,{error:'Tenant not allowed for operations'})
  if(body.tenantId!==undefined)return json(res,400,{error:'tenantId must be supplied only by authenticated header'})
  const input=body.input&&typeof body.input==='object'?body.input as Record<string,unknown>:{}
+ if(operation==='createOrderDraft'&&input.paymentMethod==='MANUAL_TRANSFER_TEST'&&!(env.FLOES_ENABLE_SYNTHETIC_TRANSFER==='true'&&(env.VERCEL_ENV==='preview'||env.NODE_ENV==='development')))return json(res,403,{error:'Synthetic transfer is disabled outside the isolated Preview/local test environment'})
  const authenticatedActor:ActorContext=humanOperations.has(operation)
   ? {actorId:accessScope==='owner'?ownerActorId!:'chopify-operations',role:'TENANT_OWNER',tenantId}
   : {actorId:'ganobot-commerce',role:'AUTOMATION',tenantId}

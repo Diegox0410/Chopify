@@ -11,8 +11,37 @@ async function accessToken(env:NodeJS.ProcessEnv){const a=account(env);const key
 export class FirestoreCommerceStateStore implements CommerceStateStore {
  private readonly collection:string
  constructor(private readonly env:NodeJS.ProcessEnv=process.env){this.collection=env.CHOPIFY_COMMERCE_STATE_COLLECTION?.trim()||'chopifyCommerceRuntime'}
- private base(){const a=account(this.env);return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(a.project_id)}/databases/(default)/documents/${encodeURIComponent(this.collection)}`}
- private async request(url:string,init:RequestInit={}){return fetch(url,{...init,signal:init.signal??AbortSignal.timeout(10_000),headers:{Authorization:`Bearer ${await accessToken(this.env)}`,...JSON_HEADERS,...(init.headers??{})}})}
+ private emulatorBase(){
+  const host=this.env.FIRESTORE_EMULATOR_HOST?.trim()
+  if(!host)return null
+  if(!/^(localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/.test(host))throw new Error('Firestore emulator host must be loopback-only')
+  const projectId=this.env.FIREBASE_PROJECT_ID?.trim()||this.env.GCLOUD_PROJECT?.trim()||'demo-floes-sandbox'
+  if(!projectId.startsWith('demo-'))throw new Error('Firestore emulator requires a demo project id')
+  return `http://${host}/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${encodeURIComponent(this.collection)}`
+ }
+ private base(){const emulator=this.emulatorBase();if(emulator)return emulator;const a=account(this.env);return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(a.project_id)}/databases/(default)/documents/${encodeURIComponent(this.collection)}`}
+ private async request(url:string,init:RequestInit={}){const emulator=Boolean(this.env.FIRESTORE_EMULATOR_HOST?.trim());return fetch(url,{...init,signal:init.signal??AbortSignal.timeout(10_000),headers:{...(emulator?{Authorization:'Bearer owner'}:{Authorization:`Bearer ${await accessToken(this.env)}`}),...JSON_HEADERS,...(init.headers??{})}})}
  async load(tenantId:string):Promise<CommerceStateRecord|null>{const response=await this.request(`${this.base()}/${encodeURIComponent(tenantId)}`);if(response.status===404)return null;if(!response.ok)throw await upstreamResponseError(response,{service:'firestore',operation:'commerce_state_read'});const doc=await response.json() as {updateTime?:string;fields?:{stateJson?:{stringValue?:string}}};const json=doc.fields?.stateJson?.stringValue;if(!json)throw new Error('Commerce state document is invalid');const raw=JSON.parse(json) as {schemaVersion?:number;orders?:{products?:unknown}};return{state:migrateCommerceState(tenantId,raw),version:doc.updateTime??null,migrated:raw.schemaVersion!==3||!Array.isArray(raw.orders?.products)}}
- async save(tenantId:string,state:CommerceRuntimeState,expectedVersion:string|null){const fields={stateJson:{stringValue:JSON.stringify(state)},schemaVersion:{integerValue:'3'},tenantId:{stringValue:tenantId},updatedAt:{timestampValue:new Date().toISOString()}};let response:Response;if(expectedVersion===null){response=await this.request(`${this.base()}?documentId=${encodeURIComponent(tenantId)}`,{method:'POST',body:JSON.stringify({fields})});if(response.status===409)throw new CommerceStateConflictError()}else{const query=new URLSearchParams({'currentDocument.updateTime':expectedVersion});response=await this.request(`${this.base()}/${encodeURIComponent(tenantId)}?${query}`,{method:'PATCH',body:JSON.stringify({fields})});if(response.status===409||response.status===412)throw new CommerceStateConflictError()}if(!response.ok)throw new Error(`Commerce state write failed (${response.status})`);const doc=await response.json() as {updateTime?:string};if(!doc.updateTime)throw new Error('Commerce state write returned no version');return doc.updateTime}
+ async save(tenantId:string,state:CommerceRuntimeState,expectedVersion:string|null){
+  const fields={stateJson:{stringValue:JSON.stringify(state)},schemaVersion:{integerValue:'3'},tenantId:{stringValue:tenantId},updatedAt:{timestampValue:new Date().toISOString()}}
+  let response:Response
+  if(expectedVersion===null){
+   response=await this.request(`${this.base()}?documentId=${encodeURIComponent(tenantId)}`,{method:'POST',body:JSON.stringify({fields})})
+  }else{
+   const collectionPath=`/documents/${encodeURIComponent(this.collection)}`
+   const apiRoot=this.base().slice(0,-collectionPath.length)
+   const documentName=`${new URL(apiRoot).pathname.replace(/^\/v1\//,'')}${collectionPath}/${encodeURIComponent(tenantId)}`
+   response=await this.request(`${apiRoot}/documents:commit`,{method:'POST',body:JSON.stringify({writes:[{update:{name:documentName,fields},currentDocument:{updateTime:expectedVersion}}]})})
+  }
+  if(!response.ok){
+   if(response.status===409||response.status===412)throw new CommerceStateConflictError()
+   const error=await response.clone().json().catch(()=>null) as {error?:{status?:string}}|null
+   if(error?.error?.status==='FAILED_PRECONDITION'||error?.error?.status==='ABORTED')throw new CommerceStateConflictError()
+   throw new Error(`Commerce state write failed (${response.status})`)
+  }
+  const body=await response.json() as {updateTime?:string;writeResults?:Array<{updateTime?:string}>}
+  const version=expectedVersion===null?body.updateTime:body.writeResults?.[0]?.updateTime
+  if(!version)throw new Error('Commerce state write returned no version')
+  return version
+ }
 }

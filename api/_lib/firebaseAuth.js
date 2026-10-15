@@ -44,6 +44,18 @@ export async function verifyFirebaseIdToken(authorization){
   }
 
   const token=authorization.slice(7).trim()
+  const emulatorHost=process.env.FIREBASE_AUTH_EMULATOR_HOST?.trim()
+  if(emulatorHost){
+    const projectId=process.env.CHOPIFY_FIREBASE_PROJECT_ID
+    if(!projectId?.startsWith('demo-')||!/^(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(emulatorHost))throw new FirebaseAuthConfigurationError()
+    try{
+      const response=await fetch(`http://${emulatorHost}/identitytoolkit.googleapis.com/v1/accounts:lookup?key=fake-api-key`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({idToken:token}),signal:AbortSignal.timeout(5000)})
+      if(!response.ok)return null
+      const result=await response.json()
+      const user=result.users?.[0]
+      return user?.localId?{uid:user.localId,email:typeof user.email==='string'?user.email:'',emailVerified:user.emailVerified===true}:null
+    }catch{return null}
+  }
   const parts=token.split('.')
   if(parts.length!==3)return null
 
