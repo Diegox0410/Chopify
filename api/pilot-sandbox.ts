@@ -100,7 +100,7 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
   return async function pilotSandboxHandler(request: ApiRequest, response: ApiResponse) {
     if (env.VERCEL_ENV !== 'preview') return reply(response, 404, { ok: false, error: 'Sandbox route unavailable.' })
     const action = queryAction(request)
-    if (!['health', 'seed', 'chat', 'admin', 'order', 'admin-action', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
+    if (!['health', 'seed', 'chat', 'admin', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
     const readiness = readSandboxReadiness(env)
     if (!readiness.ready) return reply(response, 503, { ok: false, error: 'Sandbox isolation or Preview connection is not ready.', checks: readiness.checks })
 
@@ -198,12 +198,17 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
           const fixture = testPilotProduct(`${origin}/images/pilot/daniela-vino.jpeg`)
           if (!loaded) state.orders.products = []
           if (!state.orders.products.some(product => product.id === fixture.id)) state.orders.products.push(fixture)
-          if (!state.orders.inventory.some(item => item.productId === fixture.id && item.size === 'M')) {
+          const inventory = state.orders.inventory.find(item => item.tenantId === TENANT_ID && item.productId === fixture.id && item.variantId === 'pilot-daniela-vino-test-only' && item.size === 'M')
+          if (!inventory) {
             state.orders.inventory.push({ tenantId: TENANT_ID, productId: fixture.id, variantId: 'pilot-daniela-vino-test-only', size: 'M', onHand: 2, reserved: 0 })
+          } else if (inventory.reserved === 0 && inventory.onHand < 2) {
+            // The only replenishable stock here is the explicitly synthetic pilot fixture.
+            inventory.onHand = 2
           }
           try {
             await store.save(TENANT_ID, state, loaded?.version ?? null)
-            return reply(response, 200, { ok: true, sandbox: true, seeded: true, fixtureId: fixture.id, inventory: { size: 'M', onHand: 2 } })
+            const seededInventory = state.orders.inventory.find(item => item.tenantId === TENANT_ID && item.productId === fixture.id && item.variantId === 'pilot-daniela-vino-test-only' && item.size === 'M')
+            return reply(response, 200, { ok: true, sandbox: true, seeded: true, fixtureId: fixture.id, inventory: { size: 'M', onHand: seededInventory?.onHand ?? 0, reserved: seededInventory?.reserved ?? 0, synthetic: true } })
           } catch (error) {
             if (!(error instanceof CommerceStateConflictError) || attempt === 3) throw error
           }
@@ -224,6 +229,26 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
         return reply(response, 200, { ok: true, sandbox: true, data })
       } catch {
         return reply(response, 502, { ok: false, error: 'Chopify Preview no pudo completar la acción administrativa sandbox.' })
+      }
+    }
+
+    if (action === 'test-shipping-quote') {
+      const orderId = typeof body.orderId === 'string' ? body.orderId.trim() : ''
+      if (!/^[A-Za-z0-9._:-]{1,160}$/.test(orderId) || body.confirmation !== 'SYNTHETIC_TEST_QUOTE') {
+        return reply(response, 400, { ok: false, error: 'Pedido y confirmación de cotización sintética son obligatorios.' })
+      }
+      try {
+        const detail = record(await ownerCall('getOrderDetail', { orderId }))
+        const order = record(detail.order)
+        const quote = record(order.shippingQuote)
+        if (!order.id || !['REQUESTED', 'QUOTED'].includes(String(quote.status))) {
+          return reply(response, 409, { ok: false, error: 'El pedido no tiene una cotización pendiente de prueba.' })
+        }
+        const expectedVersion = typeof quote.version === 'number' ? quote.version : 0
+        const data = await ownerCall('setShippingQuote', { orderId, amountCents: 200, expectedVersion })
+        return reply(response, 200, { ok: true, sandbox: true, synthetic: true, shippingAmountCents: 200, currency: typeof order.currency === 'string' ? order.currency : 'USD', data })
+      } catch {
+        return reply(response, 502, { ok: false, error: 'Chopify Preview no pudo guardar la cotización sintética.' })
       }
     }
 
