@@ -1,6 +1,6 @@
-import indexConfiguration from "../firestore.conversations.indexes.json";
-import { getFirestoreAccessToken, getFirestoreServiceAccount } from "./_lib/live.js";
-import type { ApiRequest, ApiResponse } from "./_lib/http.js";
+import indexConfiguration from "../../firestore.conversations.indexes.json";
+import { getFirestoreAccessToken, getFirestoreServiceAccount } from "./live.js";
+import type { ApiRequest, ApiResponse } from "./http.js";
 
 const SANDBOX_PROJECT = "floes-commercial-sandbox-2026";
 const PREVIEW_BRANCH = "codex/preview-final-chopify";

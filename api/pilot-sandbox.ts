@@ -3,6 +3,7 @@ import type { CommerceGatewayOperation } from '../src/application/commerceGatewa
 import { createTenantCommerceState, CommerceStateConflictError } from '../src/application/commerceRuntime.js'
 import { FirestoreCommerceStateStore } from '../src/infrastructure/firestoreCommerceStateStore.js'
 import { testPilotProduct } from '../src/features/pilot/pilotFixture.js'
+import { createPreviewConversationIndexesHandler } from './_lib/previewConversationIndexes.js'
 
 const SANDBOX_PROJECT_ID = 'floes-commercial-sandbox-2026'
 const SANDBOX_COLLECTION = 'floesCommerceSandboxState'
@@ -100,7 +101,7 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
   return async function pilotSandboxHandler(request: ApiRequest, response: ApiResponse) {
     if (env.VERCEL_ENV !== 'preview') return reply(response, 404, { ok: false, error: 'Sandbox route unavailable.' })
     const action = queryAction(request)
-    if (!['health', 'seed', 'chat', 'admin', 'conversations', 'proof', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
+    if (!['health', 'seed', 'chat', 'admin', 'conversations', 'conversation-indexes', 'proof', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
     const readiness = readSandboxReadiness(env)
     if (!readiness.ready) return reply(response, 503, { ok: false, error: 'Sandbox isolation or Preview connection is not ready.', checks: readiness.checks })
 
@@ -129,6 +130,10 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
 
     if (request.method === 'GET' && action === 'health') {
       return reply(response, 200, { ok: true, ready: readiness.ready, sandbox: true, tenantId: TENANT_ID, firebaseProjectId: SANDBOX_PROJECT_ID, firestoreCollection: SANDBOX_COLLECTION, checks: readiness.checks, externalChannels: 'disabled', paymentProcessor: 'disabled' })
+    }
+
+    if (action === 'conversation-indexes') {
+      return createPreviewConversationIndexesHandler({ env, fetcher: fetchImpl })(request, response)
     }
 
     if (request.method === 'POST' && action === 'new-session') return reply(response, 200, { ok: true, sandbox: true, sessionId: randomUUID(), firestoreRecordsPreserved: true })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import indexConfiguration from '../../../firestore.conversations.indexes.json'
-import { createPreviewConversationIndexesHandler } from '../../../api/preview-conversation-indexes'
+import { createPreviewConversationIndexesHandler } from '../../../api/_lib/previewConversationIndexes'
 
 const branch = 'codex/preview-final-chopify'
 const sandbox = 'floes-commercial-sandbox-2026'
