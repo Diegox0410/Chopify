@@ -65,4 +65,12 @@ describe('Preview conversation index provisioning', () => {
     expect(result.body).not.toContain('private_key')
     expect(result.body).not.toContain('synthetic-service-token')
   })
+
+  it('returns only the safe provider status when Firestore rejects index listing', async () => {
+    const handler = createPreviewConversationIndexesHandler(dependencies({ fetcher: async () => Response.json({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'private provider detail' } }, { status: 400 }) }))
+    const result = response(); await handler(request(), result)
+    expect(result.statusCode).toBe(502)
+    expect(JSON.parse(result.body)).toMatchObject({ code: 'FIRESTORE_INDEX_LIST_FAILED', upstreamStatus: 400, providerStatus: 'INVALID_ARGUMENT', providerCode: 400 })
+    expect(result.body).not.toContain('private provider detail')
+  })
 })
