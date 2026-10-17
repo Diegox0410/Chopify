@@ -48,10 +48,18 @@ test('conversation query distinguishes Firestore permission denial', async () =>
 
 test('conversation query distinguishes an invalid Firestore query without returning provider text', async () => {
   process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previewServiceAccount
-  globalThis.fetch = async () => Response.json({ error: { status: 'INVALID_ARGUMENT', message: 'private query detail' } }, { status: 400 })
+  globalThis.fetch = async () => Response.json({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'private query detail' } }, { status: 400 })
   await assert.rejects(
     queryLiveDocuments('tenant-floes', {}),
-    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_QUERY_INVALID' && error.httpStatus === 400 && error.providerStatus === 'INVALID_ARGUMENT' && !error.message.includes('private query detail'),
+    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_QUERY_INVALID' && error.httpStatus === 400 && error.providerStatus === 'INVALID_ARGUMENT' && error.providerCode === 400 && error.providerBodyKind === 'ERROR_OBJECT' && !error.message.includes('private query detail'),
+  )
+})
+
+test('conversation query classifies malformed or non-JSON provider 400 responses safely', async () => {
+  globalThis.fetch = async () => new Response('<html>private proxy response</html>', { status: 400, headers: { 'content-type': 'text/html' } })
+  await assert.rejects(
+    queryLiveDocuments('tenant-floes', {}),
+    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_PROVIDER_BAD_REQUEST' && error.providerBodyKind === 'NON_JSON' && !error.message.includes('private proxy response'),
   )
 })
 
