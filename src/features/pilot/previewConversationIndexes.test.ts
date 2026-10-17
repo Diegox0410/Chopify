@@ -49,12 +49,12 @@ describe('Preview conversation index provisioning', () => {
 
   it('does not duplicate existing indexes and reports pending builds', async () => {
     const handler = createPreviewConversationIndexesHandler(dependencies({ fetcher: async (_url: unknown, init?: RequestInit) => {
-      if (init?.method === 'POST') throw new Error('should not create an existing index')
+      if (init?.method === 'POST') return new Response('{}', { status: 409 })
       return Response.json({ indexes: previewIndexes.map(index => ({ ...index, state: 'CREATING' })) })
     } }))
     const result = response(); await handler(request(), result)
     expect(result.statusCode).toBe(202)
-    expect(JSON.parse(result.body)).toMatchObject({ ok: false, pendingIndexCount: 16, readyIndexCount: 0, createdThisCall: 0, code: 'FIRESTORE_INDEX_BUILDING' })
+    expect(JSON.parse(result.body)).toMatchObject({ ok: false, pendingIndexCount: 16, readyIndexCount: 0, createdThisCall: 0, alreadyPresent: 16, code: 'FIRESTORE_INDEX_BUILDING' })
   })
 
   it('reports the exact minimum IAM role without exposing credential material', async () => {
@@ -67,10 +67,12 @@ describe('Preview conversation index provisioning', () => {
   })
 
   it('returns only the safe provider status when Firestore rejects index listing', async () => {
-    const handler = createPreviewConversationIndexesHandler(dependencies({ fetcher: async () => Response.json({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'private provider detail' } }, { status: 400 }) }))
+    const handler = createPreviewConversationIndexesHandler(dependencies({ fetcher: async (_url: unknown, init?: RequestInit) => init?.method === 'POST'
+      ? Response.json({ name: 'synthetic-operation' }, { status: 200 })
+      : Response.json({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'private provider detail' } }, { status: 400 }) }))
     const result = response(); await handler(request(), result)
-    expect(result.statusCode).toBe(502)
-    expect(JSON.parse(result.body)).toMatchObject({ code: 'FIRESTORE_INDEX_LIST_FAILED', upstreamStatus: 400, providerStatus: 'INVALID_ARGUMENT', providerCode: 400 })
+    expect(result.statusCode).toBe(202)
+    expect(JSON.parse(result.body)).toMatchObject({ code: 'FIRESTORE_INDEX_ACCEPTED_LIST_UNAVAILABLE', listStatus: 400, providerStatus: 'INVALID_ARGUMENT', providerCode: 400, createdThisCall: 16 })
     expect(result.body).not.toContain('private provider detail')
   })
 })

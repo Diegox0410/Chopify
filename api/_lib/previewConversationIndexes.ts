@@ -71,7 +71,7 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
     const endpoint = `https://firestore.googleapis.com/v1/projects/${SANDBOX_PROJECT}/databases/(default)/collectionGroups/${PREVIEW_COLLECTION}/indexes`;
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
     const listIndexes = async () => {
-      const result = await fetcher(`${endpoint}?pageSize=100`, { method: "GET", headers, signal: AbortSignal.timeout(12_000) });
+      const result = await fetcher(endpoint, { method: "GET", headers, signal: AbortSignal.timeout(12_000) });
       if (result.status === 403) return { denied: true as const };
       if (!result.ok) {
         const payload = await result.json().catch(() => null) as { error?: { status?: unknown; code?: unknown } } | null;
@@ -84,14 +84,9 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
     };
 
     try {
-      const current = await listIndexes();
-      if ("denied" in current) return replyRoleBlock(response, account.client_email);
-      if ("failed" in current) return json(response, 502, { ok: false, sandbox: true, code: "FIRESTORE_INDEX_LIST_FAILED", upstreamStatus: current.status, ...(current.providerStatus ? { providerStatus: current.providerStatus } : {}), ...(current.providerCode ? { providerCode: current.providerCode } : {}) });
-
-      const known = new Set(current.indexes.map(indexKey));
       let createdThisCall = 0;
+      let alreadyPresent = 0;
       for (const candidate of PREVIEW_INDEXES as FirestoreIndex[]) {
-        if (known.has(indexKey(candidate))) continue;
         const created = await fetcher(endpoint, {
           method: "POST",
           headers,
@@ -99,14 +94,32 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
           signal: AbortSignal.timeout(12_000),
         });
         if (created.status === 403) return replyRoleBlock(response, account.client_email);
-        if (![200, 201, 202, 409].includes(created.status)) return json(response, 502, { ok: false, sandbox: true, code: "FIRESTORE_INDEX_CREATE_FAILED", upstreamStatus: created.status });
-        if (created.status !== 409) createdThisCall += 1;
-        known.add(indexKey(candidate));
+        if (![200, 201, 202, 409].includes(created.status)) {
+          const payload = await created.json().catch(() => null) as { error?: { status?: unknown; code?: unknown } } | null;
+          const providerStatus = typeof payload?.error?.status === "string" && /^[A-Z_]{1,40}$/.test(payload.error.status) ? payload.error.status : null;
+          const providerCode = Number.isInteger(payload?.error?.code) && Number(payload.error.code) >= 400 && Number(payload.error.code) <= 599 ? Number(payload.error.code) : null;
+          return json(response, 502, { ok: false, sandbox: true, code: "FIRESTORE_INDEX_CREATE_FAILED", upstreamStatus: created.status, ...(providerStatus ? { providerStatus } : {}), ...(providerCode ? { providerCode } : {}) });
+        }
+        if (created.status === 409) alreadyPresent += 1;
+        else createdThisCall += 1;
       }
 
       const refreshed = await listIndexes();
       if ("denied" in refreshed) return replyRoleBlock(response, account.client_email);
-      if ("failed" in refreshed) return json(response, 502, { ok: false, sandbox: true, code: "FIRESTORE_INDEX_LIST_FAILED", upstreamStatus: refreshed.status, ...(refreshed.providerStatus ? { providerStatus: refreshed.providerStatus } : {}), ...(refreshed.providerCode ? { providerCode: refreshed.providerCode } : {}) });
+      if ("failed" in refreshed) return json(response, 202, {
+        ok: false,
+        sandbox: true,
+        projectId: SANDBOX_PROJECT,
+        tenantId: "tenant-floes",
+        collection: PREVIEW_COLLECTION,
+        requiredIndexCount: PREVIEW_INDEXES.length,
+        createdThisCall,
+        alreadyPresent,
+        code: "FIRESTORE_INDEX_ACCEPTED_LIST_UNAVAILABLE",
+        listStatus: refreshed.status,
+        ...(refreshed.providerStatus ? { providerStatus: refreshed.providerStatus } : {}),
+        ...(refreshed.providerCode ? { providerCode: refreshed.providerCode } : {}),
+      });
       const readyKeys = new Set(refreshed.indexes.filter(index => index.state === "READY").map(indexKey));
       const readyCount = PREVIEW_INDEXES.filter(index => readyKeys.has(indexKey(index as FirestoreIndex))).length;
       const pendingCount = PREVIEW_INDEXES.length - readyCount;
@@ -120,6 +133,7 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
         readyIndexCount: readyCount,
         pendingIndexCount: pendingCount,
         createdThisCall,
+        alreadyPresent,
         ...(pendingCount ? { code: "FIRESTORE_INDEX_BUILDING" } : {}),
       });
     } catch {
