@@ -121,7 +121,7 @@ function decodeFields(document) {
 }
 const safeLog = (stage, details = {}) => console.info(JSON.stringify({ service: 'whatsapp-live', stage, ...details }))
 export class LiveDependencyError extends Error {
-  constructor(code, message, httpStatus = null) { super(message); this.name = 'LiveDependencyError'; this.code = code; this.httpStatus = httpStatus }
+  constructor(code, message, httpStatus = null, providerStatus = null) { super(message); this.name = 'LiveDependencyError'; this.code = code; this.httpStatus = httpStatus; this.providerStatus = providerStatus }
 }
 export function escalationReason(error) {
   if (error instanceof LiveDependencyError) return error.code
@@ -189,12 +189,14 @@ export async function queryLiveDocuments(tenantId, { filters = [], orderBy = '__
     const error = body && typeof body === 'object' ? body.error : null
     const firebaseStatus = error && typeof error === 'object' ? error.status : null
     const firebaseMessage = error && typeof error === 'object' && typeof error.message === 'string' ? error.message.toLowerCase() : ''
+    const safeProviderStatus = typeof firebaseStatus === 'string' && /^[A-Z_]{1,40}$/.test(firebaseStatus) ? firebaseStatus : null
     const code = firebaseStatus === 'FAILED_PRECONDITION' || response.status === 400 && /index/.test(firebaseMessage)
       ? 'FIRESTORE_COMPOSITE_INDEX_REQUIRED'
       : firebaseStatus === 'PERMISSION_DENIED' || firebaseStatus === 'UNAUTHENTICATED' || [401, 403].includes(response.status)
         ? 'FIRESTORE_PERMISSION_DENIED'
+        : firebaseStatus === 'INVALID_ARGUMENT' ? 'FIRESTORE_QUERY_INVALID'
         : [429, 503].includes(response.status) ? 'FIRESTORE_RATE_OR_SERVICE_LIMITED' : 'CONVERSATION_STORAGE_QUERY_FAILED'
-    throw new LiveDependencyError(code, `Firestore query failed (${response.status})`, response.status)
+    throw new LiveDependencyError(code, `Firestore query failed (${response.status})`, response.status, safeProviderStatus)
   }
   const rows = await response.json()
   return rows.filter(row => row.document).map(row => ({ ...decodeFields(row.document), id: row.document.name.split('/').at(-1) }))

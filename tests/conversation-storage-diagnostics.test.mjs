@@ -9,11 +9,12 @@ const originalEnv = Object.fromEntries(['VERCEL_ENV', 'CHOPIFY_FIREBASE_PROJECT_
 process.env.VERCEL_ENV = 'preview'
 process.env.CHOPIFY_FIREBASE_PROJECT_ID = 'floes-commercial-sandbox-2026'
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
-process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({
+const previewServiceAccount = JSON.stringify({
   project_id: 'floes-commercial-sandbox-2026',
   client_email: 'preview-owner@floes-commercial-sandbox-2026.iam.gserviceaccount.com',
   private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
 })
+process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previewServiceAccount
 
 after(() => {
   globalThis.fetch = originalFetch
@@ -45,6 +46,15 @@ test('conversation query distinguishes Firestore permission denial', async () =>
   )
 });
 
+test('conversation query distinguishes an invalid Firestore query without returning provider text', async () => {
+  process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previewServiceAccount
+  globalThis.fetch = async () => Response.json({ error: { status: 'INVALID_ARGUMENT', message: 'private query detail' } }, { status: 400 })
+  await assert.rejects(
+    queryLiveDocuments('tenant-floes', {}),
+    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_QUERY_INVALID' && error.httpStatus === 400 && error.providerStatus === 'INVALID_ARGUMENT' && !error.message.includes('private query detail'),
+  )
+})
+
 test('Preview Firestore fails closed on a service-account project mismatch before network access', async () => {
   let calls = 0
   process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({ project_id: 'production-project', client_email: 'wrong@example.invalid', private_key: 'invalid' })
@@ -58,6 +68,7 @@ test('conversation HTTP endpoint returns the safe storage code while keeping Fir
     authorize: async () => ({ type: 'tenant-owner', tenantId: 'tenant-floes', uid: 'owner-test' }),
     store: { query: async () => { throw new LiveDependencyError('FIRESTORE_COMPOSITE_INDEX_REQUIRED', 'safe message', 400) } },
   })
+
   const response = { statusCode: 0, headers: {}, body: '', setHeader(name, value) { this.headers[name] = value }, end(body = '') { this.body = body } }
   await handler({ method: 'GET', query: { tenantId: 'tenant-floes', view: 'list' }, headers: {} }, response)
   assert.equal(response.statusCode, 503)
