@@ -77,7 +77,8 @@ export function createConversationHandler(dependencies = {}) {
       const providerStatus = error instanceof LiveDependencyError && typeof error.providerStatus === 'string' ? error.providerStatus : undefined
       const providerCode = error instanceof LiveDependencyError && Number.isInteger(error.providerCode) ? error.providerCode : undefined
       const providerBodyKind = error instanceof LiveDependencyError && typeof error.providerBodyKind === 'string' ? error.providerBodyKind : undefined
-      console.error(JSON.stringify({ service: 'conversations', stage: 'request_failed', code, httpStatus: status, ...(dependencyStatus ? { dependencyStatus } : {}), ...(providerStatus ? { providerStatus } : {}), ...(providerCode ? { providerCode } : {}), ...(providerBodyKind ? { providerBodyKind } : {}) }))
+      const providerBodyKeys = error instanceof LiveDependencyError && typeof error.providerBodyKeys === 'string' ? error.providerBodyKeys : undefined
+      console.error(JSON.stringify({ service: 'conversations', stage: 'request_failed', code, httpStatus: status, ...(dependencyStatus ? { dependencyStatus } : {}), ...(providerStatus ? { providerStatus } : {}), ...(providerCode ? { providerCode } : {}), ...(providerBodyKind ? { providerBodyKind } : {}), ...(providerBodyKeys ? { providerBodyKeys } : {}) }))
       return json(res, status, { ok: false, error: code })
     }
   }

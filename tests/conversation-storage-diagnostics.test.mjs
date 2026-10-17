@@ -59,7 +59,7 @@ test('conversation query classifies malformed or non-JSON provider 400 responses
   globalThis.fetch = async () => new Response('<html>private proxy response</html>', { status: 400, headers: { 'content-type': 'text/html' } })
   await assert.rejects(
     queryLiveDocuments('tenant-floes', {}),
-    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_PROVIDER_BAD_REQUEST' && error.providerBodyKind === 'NON_JSON' && !error.message.includes('private proxy response'),
+    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_PROVIDER_BAD_REQUEST' && error.providerBodyKind === 'NON_JSON' && error.providerBodyKeys === null && !error.message.includes('private proxy response'),
   )
 })
 
