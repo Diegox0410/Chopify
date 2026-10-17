@@ -100,7 +100,7 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
   return async function pilotSandboxHandler(request: ApiRequest, response: ApiResponse) {
     if (env.VERCEL_ENV !== 'preview') return reply(response, 404, { ok: false, error: 'Sandbox route unavailable.' })
     const action = queryAction(request)
-    if (!['health', 'seed', 'chat', 'admin', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
+    if (!['health', 'seed', 'chat', 'admin', 'conversations', 'proof', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
     const readiness = readSandboxReadiness(env)
     if (!readiness.ready) return reply(response, 503, { ok: false, error: 'Sandbox isolation or Preview connection is not ready.', checks: readiness.checks })
 
@@ -139,6 +139,60 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
         return reply(response, 200, { ok: true, sandbox: true, tenantId: TENANT_ID, paymentReviews: values[0], orders: values[1], customers: values[2], products: values[3] })
       } catch {
         return reply(response, 502, { ok: false, error: 'Chopify Preview no respondió la lectura Owner del sandbox.' })
+      }
+    }
+
+    if (request.method === 'GET' && action === 'conversations') {
+      try {
+        const url = new URL('/api/conversations', origin)
+        url.search = new URLSearchParams({ tenantId: TENANT_ID, view: 'list', limit: '1' }).toString()
+        const result = await fetchImpl(url, { method: 'GET', headers: tenantHeaders, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15_000) })
+        const contentType = result.headers.get('content-type') ?? ''
+        const payload = record(await result.json().catch(() => ({})))
+        const rows = Array.isArray(payload.conversations) ? payload.conversations : null
+        const tenantPinned = rows ? rows.every(item => record(item).tenantId === TENANT_ID) : null
+        const contractValid = result.ok && payload.ok === true && rows !== null
+        const knownCodes = new Set([
+          'UNAUTHORIZED', 'FORBIDDEN', 'AUTHENTICATION_NOT_CONFIGURED', 'TENANT_NOT_ALLOWED',
+          'CONVERSATION_SERVICE_UNAVAILABLE', 'FIRESTORE_COMPOSITE_INDEX_REQUIRED', 'FIRESTORE_PROJECT_MISMATCH',
+          'FIRESTORE_PERMISSION_DENIED', 'FIRESTORE_SERVICE_ACCOUNT_INVALID', 'FIRESTORE_SERVICE_ACCOUNT_REJECTED',
+          'FIREBASE_OAUTH_UNAVAILABLE', 'FIRESTORE_RATE_OR_SERVICE_LIMITED', 'CONVERSATION_STORAGE_QUERY_FAILED',
+        ])
+        const upstreamCode = typeof payload.error === 'string' && knownCodes.has(payload.error) ? payload.error : null
+        const code = !contentType.toLowerCase().includes('application/json') ? 'CHOPIFY_PREVIEW_PROTECTION_OR_NON_JSON'
+          : contractValid && tenantPinned === true ? 'OK'
+            : upstreamCode || (result.status === 401 ? 'OWNER_CREDENTIAL_REJECTED' : result.status === 403 ? 'OWNER_OR_TENANT_DENIED' : result.status === 503 ? 'CONVERSATION_SERVICE_UNAVAILABLE' : 'INVALID_UPSTREAM_RESPONSE')
+        return reply(response, 200, { ok: contractValid && tenantPinned === true, sandbox: true, tenantId: TENANT_ID, upstreamStatus: result.status, responseIsJson: contentType.toLowerCase().includes('application/json'), conversationContractValid: contractValid, tenantPinned, conversationCount: rows?.length ?? null, code })
+      } catch {
+        return reply(response, 200, { ok: false, sandbox: true, tenantId: TENANT_ID, code: 'CHOPIFY_CONVERSATION_PREFLIGHT_FAILED' })
+      }
+    }
+
+    if (request.method === 'GET' && action === 'proof') {
+      try {
+        const orderId = new URL(request.url ?? '/', 'https://sandbox.invalid').searchParams.get('orderId')?.trim() ?? ''
+        if (!/^[A-Za-z0-9._:-]{1,160}$/.test(orderId)) return reply(response, 400, { ok: false, error: 'orderId inválido.' })
+        const detail = record(await ownerCall('getOrderDetail', { orderId }))
+        const order = record(detail.order)
+        if (order.id !== orderId || order.tenantId !== TENANT_ID || order.paymentMethod !== 'MANUAL_TRANSFER_TEST') {
+          return reply(response, 409, { ok: false, sandbox: true, synthetic: false, error: 'Solo se consulta un comprobante de transferencia sintética del tenant-floes.' })
+        }
+        const reviews = await ownerCall('listPaymentReviews')
+        const review = Array.isArray(reviews) ? reviews.find(item => record(record(item).order).id === orderId) : null
+        const proof = record(record(review).proof)
+        if (!proof.id || proof.orderId !== orderId || proof.tenantId !== TENANT_ID || proof.status !== 'PENDING' || typeof proof.assetReference !== 'string' || !proof.assetReference.startsWith('sandbox-test://transfer/')) {
+          return reply(response, 409, { ok: false, sandbox: true, synthetic: false, error: 'El comprobante no es un fixture ficticio privado pendiente.' })
+        }
+        const url = new URL('/api/payment-proof', origin)
+        url.search = new URLSearchParams({ tenantId: TENANT_ID, proofId: String(proof.id) }).toString()
+        const result = await fetchImpl(url, { method: 'GET', headers: tenantHeaders, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15_000) })
+        const contentType = (result.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+        const bytes = result.ok ? Buffer.from(await result.arrayBuffer()) : Buffer.alloc(0)
+        const fixtureMarkerPresent = bytes.includes(Buffer.from('COMPROBANTE FICTICIO - SANDBOX'))
+        const accessible = result.ok && contentType === 'application/pdf' && bytes.length > 0 && fixtureMarkerPresent
+        return reply(response, 200, { ok: accessible, sandbox: true, synthetic: true, privateProofAccessible: accessible, upstreamStatus: result.status, contentType: contentType || null, byteLength: bytes.length, fixtureMarkerPresent })
+      } catch {
+        return reply(response, 200, { ok: false, sandbox: true, code: 'PRIVATE_SYNTHETIC_PROOF_PREFLIGHT_FAILED' })
       }
     }
 

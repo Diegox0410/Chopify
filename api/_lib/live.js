@@ -82,8 +82,16 @@ export async function recordDeliveryStatus(status, dependencies = {}) {
   throw new LiveDependencyError('DELIVERY_STATUS_CONFLICT','Concurrent delivery status could not be recorded')
 }
 function serviceAccount() {
-  const account = JSON.parse(must('FIREBASE_SERVICE_ACCOUNT_JSON'))
-  if (!account.project_id || !account.client_email || !account.private_key) throw new Error('Invalid Firebase service account JSON')
+  let account
+  try { account = JSON.parse(must('FIREBASE_SERVICE_ACCOUNT_JSON')) }
+  catch { throw new LiveDependencyError('FIRESTORE_SERVICE_ACCOUNT_INVALID', 'Firebase service account configuration is invalid') }
+  if (!account.project_id || !account.client_email || !account.private_key) throw new LiveDependencyError('FIRESTORE_SERVICE_ACCOUNT_INVALID', 'Firebase service account configuration is invalid')
+  if (process.env.VERCEL_ENV === 'preview') {
+    const expectedProject = process.env.CHOPIFY_FIREBASE_PROJECT_ID?.trim()
+    if (expectedProject !== 'floes-commercial-sandbox-2026' || account.project_id !== expectedProject) {
+      throw new LiveDependencyError('FIRESTORE_PROJECT_MISMATCH', 'Preview Firestore must use the FLOES sandbox project')
+    }
+  }
   return account
 }
 let cachedToken = null
@@ -96,7 +104,10 @@ async function accessToken() {
   const sign = createSign('RSA-SHA256'); sign.update(data); sign.end()
   const assertion = `${data}.${sign.sign(account.private_key, 'base64url')}`
   const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) })
-  if (!response.ok) throw new Error(`Firebase OAuth failed (${response.status})`)
+  if (!response.ok) {
+    const code = response.status === 401 || response.status === 403 ? 'FIRESTORE_SERVICE_ACCOUNT_REJECTED' : 'FIREBASE_OAUTH_UNAVAILABLE'
+    throw new LiveDependencyError(code, `Firebase OAuth failed (${response.status})`, response.status)
+  }
   const token = await response.json()
   cachedToken = { value: token.access_token, expires: Date.now() + Number(token.expires_in || 3600) * 1000 }
   return cachedToken.value
@@ -110,7 +121,7 @@ function decodeFields(document) {
 }
 const safeLog = (stage, details = {}) => console.info(JSON.stringify({ service: 'whatsapp-live', stage, ...details }))
 export class LiveDependencyError extends Error {
-  constructor(code, message) { super(message); this.name = 'LiveDependencyError'; this.code = code }
+  constructor(code, message, httpStatus = null) { super(message); this.name = 'LiveDependencyError'; this.code = code; this.httpStatus = httpStatus }
 }
 export function escalationReason(error) {
   if (error instanceof LiveDependencyError) return error.code
@@ -173,7 +184,18 @@ export async function queryLiveDocuments(tenantId, { filters = [], orderBy = '__
         : [{ stringValue: cursor.at }, { referenceValue: `${base.slice('https://firestore.googleapis.com/v1/'.length)}/${COLLECTION}/${cursor.id}` }] } } : {}),
     } }),
   })
-  if (!response.ok) throw new LiveDependencyError('CONVERSATION_STORAGE_QUERY_FAILED', `Firestore query failed (${response.status})`)
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    const error = body && typeof body === 'object' ? body.error : null
+    const firebaseStatus = error && typeof error === 'object' ? error.status : null
+    const firebaseMessage = error && typeof error === 'object' && typeof error.message === 'string' ? error.message.toLowerCase() : ''
+    const code = firebaseStatus === 'FAILED_PRECONDITION' || response.status === 400 && /index/.test(firebaseMessage)
+      ? 'FIRESTORE_COMPOSITE_INDEX_REQUIRED'
+      : firebaseStatus === 'PERMISSION_DENIED' || firebaseStatus === 'UNAUTHENTICATED' || [401, 403].includes(response.status)
+        ? 'FIRESTORE_PERMISSION_DENIED'
+        : [429, 503].includes(response.status) ? 'FIRESTORE_RATE_OR_SERVICE_LIMITED' : 'CONVERSATION_STORAGE_QUERY_FAILED'
+    throw new LiveDependencyError(code, `Firestore query failed (${response.status})`, response.status)
+  }
   const rows = await response.json()
   return rows.filter(row => row.document).map(row => ({ ...decodeFields(row.document), id: row.document.name.split('/').at(-1) }))
 }

@@ -90,6 +90,73 @@ describe('Preview commercial sandbox API', () => {
     expect(new Headers(init?.headers).has('x-vercel-set-bypass-cookie')).toBe(false)
   })
 
+  it('preflights the real conversation read through Preview Owner credentials without returning conversation content', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, conversations: [{ tenantId: 'tenant-floes', id: 'conversation_test', lastMessage: 'PRIVATE MESSAGE CONTENT' }], coverage: 'INDEXED' }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
+    const res = response()
+    await handler({ method: 'GET', url: requestUrl('conversations'), headers: {} }, res)
+    const payload = JSON.parse(res.body)
+    expect(res.statusCode).toBe(200)
+    expect(payload).toMatchObject({ ok: true, sandbox: true, tenantId: 'tenant-floes', upstreamStatus: 200, conversationContractValid: true, tenantPinned: true, conversationCount: 1, code: 'OK' })
+    expect(String(fetch.mock.calls[0][0])).toContain('/api/conversations?tenantId=tenant-floes&view=list&limit=1')
+    expect(new Headers(fetch.mock.calls[0][1]?.headers).get('x-chopify-access-scope')).toBe('owner')
+    expect(res.body).not.toContain('PRIVATE MESSAGE CONTENT')
+    expect(res.body).not.toContain('fake-owner-token')
+  })
+
+  it('surfaces only a safe Firestore diagnostic from the conversation preflight', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'FIRESTORE_COMPOSITE_INDEX_REQUIRED', detail: 'private Firestore diagnostic text' }), { status: 503, headers: { 'content-type': 'application/json' } }))
+    const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
+    const res = response()
+    await handler({ method: 'GET', url: requestUrl('conversations'), headers: {} }, res)
+    expect(JSON.parse(res.body)).toMatchObject({ ok: false, sandbox: true, upstreamStatus: 503, conversationContractValid: false, code: 'FIRESTORE_COMPOSITE_INDEX_REQUIRED' })
+    expect(res.body).not.toContain('private Firestore diagnostic text')
+    expect(res.body).not.toContain('fake-owner-token')
+  })
+
+  it('opens only a pending synthetic transfer proof through the private Owner endpoint', async () => {
+    const fixturePdf = Buffer.from('%PDF-1.4\nCOMPROBANTE FICTICIO - SANDBOX\n%%EOF')
+    const fetch = vi.fn(async (url: URL | string, init?: RequestInit) => {
+      if (String(url).endsWith('/api/commerce')) {
+        const operation = JSON.parse(String(init?.body)).operation
+        const data = operation === 'getOrderDetail'
+          ? { order: { id: 'order-test', tenantId: 'tenant-floes', paymentMethod: 'MANUAL_TRANSFER_TEST' } }
+          : [{ order: { id: 'order-test', tenantId: 'tenant-floes' }, payment: { id: 'payment-test' }, proof: { id: 'proof-test', orderId: 'order-test', tenantId: 'tenant-floes', status: 'PENDING', assetReference: 'sandbox-test://transfer/fixture-1' } }]
+        return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(fixturePdf, { status: 200, headers: { 'content-type': 'application/pdf' } })
+    })
+    const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
+    const res = response()
+    await handler({ method: 'GET', url: '/api/pilot-sandbox?action=proof&orderId=order-test', headers: {} }, res)
+    const payload = JSON.parse(res.body)
+    expect(res.statusCode).toBe(200)
+    expect(payload).toMatchObject({ ok: true, sandbox: true, synthetic: true, privateProofAccessible: true, upstreamStatus: 200, contentType: 'application/pdf', byteLength: fixturePdf.length, fixtureMarkerPresent: true })
+    const proofRequest = fetch.mock.calls.find(([url]) => String(url).includes('/api/payment-proof'))
+    expect(proofRequest).toBeTruthy()
+    expect(new URL(String(proofRequest?.[0])).searchParams.get('tenantId')).toBe('tenant-floes')
+    expect(new URL(String(proofRequest?.[0])).searchParams.get('proofId')).toBe('proof-test')
+    expect(new Headers(proofRequest?.[1]?.headers).get('x-chopify-access-scope')).toBe('owner')
+    expect(res.body).not.toContain('COMPROBANTE FICTICIO')
+    expect(res.body).not.toContain('fake-owner-token')
+  })
+
+  it('refuses to proxy real or public proof references through the synthetic proof check', async () => {
+    const fetch = vi.fn(async (_url: URL | string, init?: RequestInit) => {
+      const operation = JSON.parse(String(init?.body)).operation
+      const data = operation === 'getOrderDetail'
+        ? { order: { id: 'order-test', tenantId: 'tenant-floes', paymentMethod: 'TRANSFER' } }
+        : []
+      return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })
+    const res = response()
+    await handler({ method: 'GET', url: '/api/pilot-sandbox?action=proof&orderId=order-test', headers: {} }, res)
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ sandbox: true, synthetic: false })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('checks fixture stock through the read-only Commerce operation and returns only safe stock fields', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { available: true, availableQuantity: 2, fulfillmentMode: 'STOCK' } }), { status: 200, headers: { 'content-type': 'application/json' } }))
     const handler = createPilotSandboxHandler({ env: readyEnvironment(), fetch })

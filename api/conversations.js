@@ -4,7 +4,7 @@ import { authorizeOwnerService } from './_lib/ownerServiceAuth.js'
 import { isKnownTenant } from '../src/config/tenantRegistry.js'
 import { changeConversationControl, ConversationError, readConversation, recordInboundConversation } from './_lib/conversationStore.js'
 import { listConversationSummaries, readConversationThread, readCustomerConversationContext } from './_lib/conversationReadModel.js'
-import { queryLiveDocuments } from './_lib/live.js'
+import { LiveDependencyError, queryLiveDocuments } from './_lib/live.js'
 import { sendHumanReply } from './_lib/conversationHumanReply.js'
 
 const json = (res, status, body) => {
@@ -72,8 +72,9 @@ export function createConversationHandler(dependencies = {}) {
       return json(res, 200, result)
     } catch (error) {
       const status = error instanceof ConversationError ? error.status : error instanceof SyntaxError ? 400 : 503
-      const code = error instanceof ConversationError ? error.code : error instanceof SyntaxError ? 'INVALID_JSON' : 'CONVERSATION_SERVICE_UNAVAILABLE'
-      console.error(JSON.stringify({ service: 'conversations', stage: 'request_failed', code, httpStatus: status }))
+      const code = error instanceof ConversationError || error instanceof LiveDependencyError ? error.code : error instanceof SyntaxError ? 'INVALID_JSON' : 'CONVERSATION_SERVICE_UNAVAILABLE'
+      const dependencyStatus = error instanceof LiveDependencyError && Number.isInteger(error.httpStatus) ? error.httpStatus : undefined
+      console.error(JSON.stringify({ service: 'conversations', stage: 'request_failed', code, httpStatus: status, ...(dependencyStatus ? { dependencyStatus } : {}) }))
       return json(res, status, { ok: false, error: code })
     }
   }
