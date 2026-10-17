@@ -63,6 +63,14 @@ test('conversation query classifies malformed or non-JSON provider 400 responses
   )
 })
 
+test('conversation query extracts only safe Firestore error fields from array-wrapped responses', async () => {
+  globalThis.fetch = async () => Response.json([{ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'private wrapped query detail' } }], { status: 400 })
+  await assert.rejects(
+    queryLiveDocuments('tenant-floes', {}),
+    error => error instanceof LiveDependencyError && error.code === 'FIRESTORE_QUERY_INVALID' && error.providerStatus === 'INVALID_ARGUMENT' && error.providerCode === 400 && error.providerBodyKind === 'JSON_ARRAY' && !error.message.includes('private wrapped query detail'),
+  )
+})
+
 test('Preview Firestore fails closed on a service-account project mismatch before network access', async () => {
   let calls = 0
   process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({ project_id: 'production-project', client_email: 'wrong@example.invalid', private_key: 'invalid' })

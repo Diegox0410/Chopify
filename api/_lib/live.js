@@ -186,7 +186,9 @@ export async function queryLiveDocuments(tenantId, { filters = [], orderBy = '__
   })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    const error = body && typeof body === 'object' ? body.error : null
+    const error = Array.isArray(body)
+      ? body.find(item => item && typeof item === 'object' && item.error && typeof item.error === 'object')?.error ?? null
+      : body && typeof body === 'object' ? body.error : null
     const firebaseStatus = error && typeof error === 'object' ? error.status : null
     const firebaseMessage = error && typeof error === 'object' && typeof error.message === 'string' ? error.message.toLowerCase() : ''
     const safeProviderStatus = typeof firebaseStatus === 'string' && /^[A-Z_]{1,40}$/.test(firebaseStatus) ? firebaseStatus : null
