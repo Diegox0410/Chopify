@@ -112,6 +112,8 @@ async function accessToken() {
   cachedToken = { value: token.access_token, expires: Date.now() + Number(token.expires_in || 3600) * 1000 }
   return cachedToken.value
 }
+export const getFirestoreServiceAccount = () => serviceAccount()
+export const getFirestoreAccessToken = () => accessToken()
 const firestoreBase = () => `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(serviceAccount().project_id)}/databases/(default)/documents/${COLLECTION}`
 function encodeFields(data) {
   return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, { stringValue: String(value ?? '') }]))
