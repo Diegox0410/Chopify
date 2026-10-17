@@ -1,4 +1,4 @@
-import indexConfiguration from "../../firestore.conversations.indexes.json";
+import indexConfiguration from "../../firestore.conversations.indexes.json" with { type: "json" };
 import { getFirestoreAccessToken, getFirestoreServiceAccount } from "./live.js";
 import type { ApiRequest, ApiResponse } from "./http.js";
 
