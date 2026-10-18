@@ -9,6 +9,7 @@ const CONFIRMATION = "CREATE_PREVIEW_ONLY_CONVERSATION_INDEXES";
 const PREVIEW_INDEXES = indexConfiguration.indexes.filter(index => index.collectionGroup === PREVIEW_COLLECTION);
 
 type FirestoreIndex = {
+  name?: string;
   collectionGroup?: string;
   queryScope?: string;
   fields?: Array<{ fieldPath: string; order?: string; arrayConfig?: string }>;
@@ -121,7 +122,8 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
         ...(refreshed.providerStatus ? { providerStatus: refreshed.providerStatus } : {}),
         ...(refreshed.providerCode ? { providerCode: refreshed.providerCode } : {}),
       });
-      const scopedIndexes = refreshed.indexes.filter(index => index.collectionGroup === PREVIEW_COLLECTION);
+      // The Firestore REST Index resource omits collectionGroup; the list URL already scopes it.
+      const scopedIndexes = refreshed.indexes;
       const readyKeys = new Set(refreshed.indexes.filter(index => index.state === "READY").map(indexKey));
       const readyCount = PREVIEW_INDEXES.filter(index => readyKeys.has(indexKey(index as FirestoreIndex))).length;
       const pendingCount = PREVIEW_INDEXES.length - readyCount;

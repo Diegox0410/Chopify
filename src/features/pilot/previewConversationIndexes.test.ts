@@ -34,7 +34,7 @@ describe('Preview conversation index provisioning', () => {
 
   it('creates only the 16 checked-in Preview indexes and reports safe readiness counts', async () => {
     const created: unknown[] = []
-    const readyIndexes = previewIndexes.map(index => ({ ...index, fields: [...index.fields].reverse(), state: 'READY' }))
+    const readyIndexes = previewIndexes.map((index, position) => ({ name: `projects/${sandbox}/databases/(default)/collectionGroups/chopifyWhatsAppLivePreview/indexes/${position}`, queryScope: index.queryScope, fields: [...index.fields].reverse(), state: 'READY' }))
     const handler = createPreviewConversationIndexesHandler(dependencies({ fetcher: async (_url: unknown, init?: RequestInit) => {
       if (init?.method === 'POST') { created.push(JSON.parse(String(init.body))); return Response.json({ name: 'synthetic-operation' }, { status: 200 }) }
       return Response.json({ indexes: created.length ? readyIndexes : [] })
