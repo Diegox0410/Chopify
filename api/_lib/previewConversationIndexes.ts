@@ -35,7 +35,8 @@ const requestBody = (body: unknown) => {
 };
 const normalizedFields = (index: FirestoreIndex) => (index.fields ?? [])
   .filter(field => field.fieldPath !== "__name__")
-  .map(field => ({ fieldPath: field.fieldPath, ...(field.order ? { order: field.order } : {}), ...(field.arrayConfig ? { arrayConfig: field.arrayConfig } : {}) }));
+  .map(field => ({ fieldPath: field.fieldPath, ...(field.order ? { order: field.order } : {}), ...(field.arrayConfig ? { arrayConfig: field.arrayConfig } : {}) }))
+  .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath) || (left.order ?? "").localeCompare(right.order ?? "") || (left.arrayConfig ?? "").localeCompare(right.arrayConfig ?? ""));
 const indexKey = (index: FirestoreIndex) => JSON.stringify({ queryScope: index.queryScope ?? "COLLECTION", fields: normalizedFields(index) });
 const replyRoleBlock = (response: ApiResponse, email: unknown) => json(response, 403, {
   ok: false,
@@ -120,9 +121,15 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
         ...(refreshed.providerStatus ? { providerStatus: refreshed.providerStatus } : {}),
         ...(refreshed.providerCode ? { providerCode: refreshed.providerCode } : {}),
       });
+      const scopedIndexes = refreshed.indexes.filter(index => index.collectionGroup === PREVIEW_COLLECTION);
       const readyKeys = new Set(refreshed.indexes.filter(index => index.state === "READY").map(indexKey));
       const readyCount = PREVIEW_INDEXES.filter(index => readyKeys.has(indexKey(index as FirestoreIndex))).length;
       const pendingCount = PREVIEW_INDEXES.length - readyCount;
+      const stateCounts = scopedIndexes.reduce<Record<string, number>>((counts, index) => {
+        const state = typeof index.state === "string" && /^[A-Z_]{1,32}$/.test(index.state) ? index.state : "UNKNOWN";
+        counts[state] = (counts[state] ?? 0) + 1;
+        return counts;
+      }, {});
       return json(response, pendingCount === 0 ? 200 : 202, {
         ok: pendingCount === 0,
         sandbox: true,
@@ -130,8 +137,10 @@ export function createPreviewConversationIndexesHandler(dependencies: Dependenci
         tenantId: "tenant-floes",
         collection: PREVIEW_COLLECTION,
         requiredIndexCount: PREVIEW_INDEXES.length,
+        listedIndexCount: scopedIndexes.length,
         readyIndexCount: readyCount,
         pendingIndexCount: pendingCount,
+        stateCounts,
         createdThisCall,
         alreadyPresent,
         ...(pendingCount ? { code: "FIRESTORE_INDEX_BUILDING" } : {}),

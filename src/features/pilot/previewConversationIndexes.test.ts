@@ -34,7 +34,7 @@ describe('Preview conversation index provisioning', () => {
 
   it('creates only the 16 checked-in Preview indexes and reports safe readiness counts', async () => {
     const created: unknown[] = []
-    const readyIndexes = previewIndexes.map(index => ({ ...index, state: 'READY' }))
+    const readyIndexes = previewIndexes.map(index => ({ ...index, fields: [...index.fields].reverse(), state: 'READY' }))
     const handler = createPreviewConversationIndexesHandler(dependencies({ fetcher: async (_url: unknown, init?: RequestInit) => {
       if (init?.method === 'POST') { created.push(JSON.parse(String(init.body))); return Response.json({ name: 'synthetic-operation' }, { status: 200 }) }
       return Response.json({ indexes: created.length ? readyIndexes : [] })
@@ -42,7 +42,7 @@ describe('Preview conversation index provisioning', () => {
     const result = response(); await handler(request(), result)
     const payload = JSON.parse(result.body)
     expect(result.statusCode).toBe(200)
-    expect(payload).toMatchObject({ ok: true, sandbox: true, projectId: sandbox, tenantId: 'tenant-floes', collection: 'chopifyWhatsAppLivePreview', requiredIndexCount: 16, readyIndexCount: 16, pendingIndexCount: 0, createdThisCall: 16 })
+    expect(payload).toMatchObject({ ok: true, sandbox: true, projectId: sandbox, tenantId: 'tenant-floes', collection: 'chopifyWhatsAppLivePreview', requiredIndexCount: 16, listedIndexCount: 16, readyIndexCount: 16, pendingIndexCount: 0, stateCounts: { READY: 16 }, createdThisCall: 16 })
     expect(created).toHaveLength(16)
     expect(result.body).not.toContain('synthetic-service-token')
   })
