@@ -86,7 +86,10 @@ export async function listConversationSummaries(tenantId, input = {}, overrides 
     filters.push({ field: allowedModes.includes(input.status) ? 'mode' : 'status', value: input.status })
   }
   if (input.channel) {
-    if (!['WHATSAPP','INSTAGRAM','MESSENGER','WEB','TIKTOK'].includes(input.channel)) throw new ConversationError('INVALID_CHANNEL_FILTER', 400)
+    // Keep this enum aligned with the channel values persisted by inbound intake
+    // and the Owner UI. FACEBOOK is supported by the Meta channel adapter;
+    // MESSENGER is not a persisted channel identifier in this system.
+    if (!['WHATSAPP','INSTAGRAM','FACEBOOK','WEB','TIKTOK'].includes(input.channel)) throw new ConversationError('INVALID_CHANNEL_FILTER', 400)
     filters.push({ field: 'channel', value: input.channel })
   }
   const needle = String(input.query || '').trim().toLocaleLowerCase('es').slice(0,100)

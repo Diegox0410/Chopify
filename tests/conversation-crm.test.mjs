@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { conversationIdentity, conversationMetaId, recordInboundConversation, readConversation, changeConversationControl, getConversationDeliveryContext } from '../api/_lib/conversationStore.js'
-import { readConversationThread, readCustomerConversationContext, messageEvent, decodeConversationCursor, encodeConversationCursor } from '../api/_lib/conversationReadModel.js'
+import { listConversationSummaries, readConversationThread, readCustomerConversationContext, messageEvent, decodeConversationCursor, encodeConversationCursor } from '../api/_lib/conversationReadModel.js'
 import { createConversationHandler, authorizeConversations } from '../api/conversations.js'
 import { receive, sendOutbound, recordDeliveryStatus, extractDeliveryStatuses } from '../api/_lib/live.js'
 import { sendHumanReply } from '../api/_lib/conversationHumanReply.js'
@@ -28,6 +28,29 @@ const owner = { type: 'tenant-owner', tenantId, uid: 'service-owner:tenant-floes
 test('canonical thread identities never merge tenants or unrelated channels', () => {
   assert.notEqual(conversationId, conversationIdentity('tenant-mg', 'WHATSAPP', from))
   assert.notEqual(conversationId, conversationIdentity(tenantId, 'INSTAGRAM', from))
+})
+test('conversation list filters use persisted channel enums and remain tenant scoped', async () => {
+  const channels = ['WHATSAPP', 'INSTAGRAM', 'FACEBOOK', 'WEB', 'TIKTOK']
+  const at = new Date().toISOString()
+  const store = liveMemoryStore([
+    ...channels.map(channel => ({ id: `thread-${channel}`, tenantId, kind: 'THREAD', conversationId: `conversation-${channel}`, channel, status: 'AI_ATTENDING', mode: 'GANOBOT_LIVE', lastActivityAt: at, lastText: 'Synthetic fixture' })),
+    { id: 'thread-other-tenant', tenantId: 'tenant-mg', kind: 'THREAD', conversationId: 'conversation-other', channel: 'FACEBOOK', status: 'AI_ATTENDING', mode: 'GANOBOT_LIVE', lastActivityAt: at, lastText: 'Foreign fixture' },
+  ])
+  for (const channel of channels) {
+    const result = await listConversationSummaries(tenantId, { channel }, store)
+    assert.deepEqual(result.conversations.map(row => row.channel), [channel])
+    assert.ok(result.conversations.every(row => row.tenantId === tenantId))
+  }
+  const all = await listConversationSummaries(tenantId, {}, store)
+  assert.equal(all.conversations.length, channels.length)
+  assert.ok(all.conversations.every(row => row.tenantId === tenantId))
+})
+test('conversation list rejects values outside the persisted channel enum', async () => {
+  let queries = 0
+  const store = liveMemoryStore()
+  const query = store.query
+  await assert.rejects(listConversationSummaries(tenantId, { channel: 'MESSENGER' }, { ...store, query: async (...args) => { queries++; return query(...args) } }), error => error.code === 'INVALID_CHANNEL_FILTER')
+  assert.equal(queries, 0)
 })
 test('two operators cannot take the same thread concurrently and each change has one audit event', async () => {
   const store = await setup()
