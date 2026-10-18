@@ -1,13 +1,15 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { CommerceGatewayOperation } from '../src/application/commerceGateway.js'
 import { createTenantCommerceState, CommerceStateConflictError } from '../src/application/commerceRuntime.js'
 import { FirestoreCommerceStateStore } from '../src/infrastructure/firestoreCommerceStateStore.js'
 import { testPilotProduct } from '../src/features/pilot/pilotFixture.js'
 import { createPreviewConversationIndexesHandler } from './_lib/previewConversationIndexes.js'
+import { channelConversationIdentity } from './_lib/conversationStore.js'
 
 const SANDBOX_PROJECT_ID = 'floes-commercial-sandbox-2026'
 const SANDBOX_COLLECTION = 'floesCommerceSandboxState'
 const TENANT_ID = 'tenant-floes'
+const PREVIEW_BRANCH = 'codex/preview-final-chopify'
 const MAX_BODY_BYTES = 16_000
 const ADMIN_READS = ['listPaymentReviews', 'listOrders', 'listCustomers', 'listProducts'] as const
 const ADMIN_ACTIONS = new Set<CommerceGatewayOperation>([
@@ -101,7 +103,8 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
   return async function pilotSandboxHandler(request: ApiRequest, response: ApiResponse) {
     if (env.VERCEL_ENV !== 'preview') return reply(response, 404, { ok: false, error: 'Sandbox route unavailable.' })
     const action = queryAction(request)
-    if (!['health', 'seed', 'chat', 'admin', 'conversations', 'conversation-indexes', 'proof', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
+    if (!['health', 'seed', 'chat', 'admin', 'conversations', 'conversation-indexes', 'proof', 'order', 'admin-action', 'test-shipping-quote', 'new-session', 'stock', 'synthetic-conversation'].includes(action)) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
+    if (action === 'synthetic-conversation' && env.VERCEL_GIT_COMMIT_REF !== PREVIEW_BRANCH) return reply(response, 404, { ok: false, error: 'Sandbox route not found.' })
     const readiness = readSandboxReadiness(env)
     if (!readiness.ready) return reply(response, 503, { ok: false, error: 'Sandbox isolation or Preview connection is not ready.', checks: readiness.checks })
 
@@ -247,6 +250,41 @@ export function createPilotSandboxHandler({ env = process.env, fetch: fetchImpl 
     let body: Record<string, unknown>
     try { body = requestBody(request.body) }
     catch (error) { return reply(response, error instanceof RangeError ? 413 : 400, { ok: false, error: error instanceof RangeError ? 'El mensaje supera el límite permitido.' : 'JSON inválido.' }) }
+
+    if (action === 'synthetic-conversation') {
+      if (body.confirmation !== 'CREATE_SYNTHETIC_WEB_CONVERSATION') return reply(response, 400, { ok: false, synthetic: true, error: 'La confirmación explícita del fixture es obligatoria.' })
+      const inboundToken = env.CHOPIFY_GANOBOT_INBOUND_TOKEN_FLOES?.trim()
+      if (!inboundToken) return reply(response, 503, { ok: false, synthetic: true, error: 'El ingreso de prueba de tenant-floes no está configurado.' })
+      const providerMessageId = 'floes-channel-filter-qa-v1'
+      const externalConversationId = 'floes-channel-filter-qa-v1'
+      const externalCustomerId = 'floes-channel-filter-qa-customer-v1'
+      const conversationId = channelConversationIdentity(TENANT_ID, 'WEB', 'WEB', externalConversationId)
+      const idempotencyKey = createHash('sha256').update(`${TENANT_ID}:WEB:WEB:${providerMessageId}`).digest('hex')
+      const fixture = {
+        tenantId: TENANT_ID, provider: 'WEB', channel: 'WEB', providerMessageId, externalConversationId, externalCustomerId, conversationId,
+        receivedAt: '2026-10-17T00:00:00.000Z', text: 'SYNTHETIC QA ONLY: FLOES channel filter and conversation history check. No outbound delivery.',
+        customer: { name: 'Prueba sintética filtros de Conversaciones' }, acquisitionSource: 'QA-SYNTHETIC-CHANNEL-FILTER',
+      }
+      try {
+        const result = await fetchImpl(`${origin}/api/channel-inbound`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${inboundToken}`,
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+            'x-vercel-protection-bypass': bypass,
+          },
+          body: JSON.stringify(fixture),
+          redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15_000),
+        })
+        const payload = record(await result.json().catch(() => ({})))
+        const stored = result.ok && payload.conversationId === conversationId
+        if (!stored) return reply(response, 502, { ok: false, synthetic: true, error: 'Chopify no pudo guardar el fixture Web sintético.' })
+        return reply(response, 200, { ok: true, sandbox: true, synthetic: true, tenantId: TENANT_ID, channel: 'WEB', conversationId, duplicate: payload.duplicate === true, outboundCreated: false })
+      } catch {
+        return reply(response, 502, { ok: false, synthetic: true, error: 'No se pudo guardar el fixture Web sintético.' })
+      }
+    }
 
     if (action === 'seed') {
       try {

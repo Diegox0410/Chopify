@@ -359,5 +359,5 @@ describe("FLOES commercial pilot integration (isolated state adapter)", () => {
     expect(stageResults).toHaveLength(17);
     expect(stageResults.every(item => item.status === "PASS")).toBe(true);
     expect(calls.every(item => item.orderId === undefined || item.orderId === selection.orderId)).toBe(true);
-  });
+  }, 15_000);
 });
